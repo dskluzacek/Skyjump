@@ -1,0 +1,530 @@
+module server;
+@safe:
+
+import std.stdio;
+import std.algorithm : remove, all, count;
+import std.string : strip;
+import std.concurrency;
+import std.socket;
+import std.typecons;
+import core.time;
+import core.thread;
+
+import util;
+import gamemodel;
+import player;
+import playergrid;
+import card;
+import net;
+
+enum ushort PORT = 7685;
+enum BACKLOG = 5;
+enum MAX_PLAYERS = 5;
+
+private
+{
+    Socket listenerSocket;
+    SocketSet socketSet;
+    Tid consoleThread;
+    ConnectedClient[] clients;
+    ServerPlayer[] disconnectedPlayers;
+    ServerGameModel model;
+}
+
+static this()
+{
+    socketSet = new SocketSet();
+}
+
+void main() @system
+{
+    listenerSocket = new TcpSocket();
+    listenerSocket.blocking = false;
+    listenerSocket.bind(new InternetAddress(PORT));
+    listenerSocket.listen(BACKLOG);
+
+    //ServerPlayer p = new ServerPlayer("David", null);
+    //p.setGrid( new PlayerGrid() );
+    //p.getGrid().setCards([[new Card(CardRank.ONE), new Card(CardRank.TWO), null, new Card(CardRank.FOUR)],
+    //                      [new Card(CardRank.NEGATIVE_TWO), null, new Card(CardRank.SIX), new Card(CardRank.SEVEN)],
+    //                      [new Card(CardRank.ELEVEN), new Card(CardRank.NINE), null, new Card(CardRank.TWELVE)]]);
+    //p[0, 0].revealed = true;
+    //p[0, 3].revealed = true;
+    //p[1, 0].revealed = true;
+    //p[2, 3].revealed = true;
+    //
+    //disconnectedPlayers ~= p;
+    //model.addPlayer(p, new BlackHole!(ServerGameModel.Observer)());
+    //
+    //model.currentState = GameState.PLAYER_TURN;
+    //model.drawCard();
+    //model.discardDrawnCard();
+    //
+    //model.waitForReconnect(p);
+
+    write("\n$ ");
+    consoleThread = spawn(&consoleReader, thisTid);
+
+    for (;;)
+    {
+        pollSockets();
+
+        receiveTimeout(0.usecs, (string command) {
+            if (command.strip() == "start")
+            {
+                if (model.numberOfPlayers() < 2)
+                {
+                    writeMsg("Can't start the game - not enough players");
+                }
+                else if (model.getState != GameState.NOT_STARTED && model.getState != GameState.END_GAME)
+                {
+                    writeMsg("Game already in progress");
+                }
+                else
+                {
+                    foreach (client; clients) {
+                        client.readyReceived = false;
+                    }
+                    model.deal();
+                    write("$ ");
+                    stdout.flush();
+                }
+            }
+            else
+            {
+                writeMsg("Command not recognized");
+            }
+        });
+    }
+}
+
+void consoleReader(Tid ownerTid) @trusted
+{
+    char[] buffer;
+    size_t readLength;
+
+    do
+    {
+        readLength = readln(buffer);
+        ownerTid.send(buffer.idup);
+    }
+    while (readLength > 0);
+}
+
+void writeMsg(T...)(T args) @trusted
+{
+    writeln(args);
+    write("$ ");
+    stdout.flush();
+}
+
+void handleMessage(ClientMessage message, ConnectedClient client)
+{
+    final switch (message.type)
+    {
+    case ClientMessageType.JOIN:
+        playerJoin(client, message.name);
+        break;
+    case ClientMessageType.DRAW:
+        playerDraw(client);
+        break;
+    case ClientMessageType.PLACE:
+        playerPlaceDrawnCard(client, message.row, message.col);
+        break;
+    case ClientMessageType.REJECT:
+        playerRejectDrawnCard(client);
+        break;
+    case ClientMessageType.SWAP:
+        playerTakeDiscardCard(client, message.row, message.col);
+        break;
+    case ClientMessageType.FLIP:
+        playerFlipCard(client, message.row, message.col);
+        break;
+    case ClientMessageType.READY:
+        clientReady(client);
+        break;
+    case ClientMessageType.BYE:
+        playerLeave(client);
+        break;
+    }
+}
+
+void playerJoin(ConnectedClient client, string name)
+{
+    if (disconnectedPlayers.length == 1)
+    {
+        if (model.getState == GameState.WAITING_FOR_RECONNECT)
+        {
+            playerReconnect(client, disconnectedPlayers[0], name);
+        }
+        else
+        {
+            client.send(ServerMessageType.IN_PROGRESS);
+            closeConnection(client);
+        }
+        return;
+    }
+    else if (disconnectedPlayers.length > 1)
+    {
+        if (model.getState == GameState.WAITING_FOR_RECONNECT)
+        {
+            foreach (player; disconnectedPlayers)
+            {
+                if (player.getName() == name) {
+                    playerReconnect(client, player, name);
+                    return;
+                }
+            }
+        }
+
+        client.send(ServerMessageType.IN_PROGRESS);
+        closeConnection(client);
+        return;
+    }
+
+    if (client.waitingForJoin)
+    {
+        if (model.getState != GameState.NOT_STARTED)
+        {
+            client.send(ServerMessageType.IN_PROGRESS);
+            closeConnection(client);
+        }
+        else if (model.numberOfPlayers >= MAX_PLAYERS)
+        {
+            client.send(ServerMessageType.FULL);
+            closeConnection(client);
+        }
+        else
+        {
+            playerAdd(client, name);
+        }
+    }
+    else
+    {
+        // error (join allowed only once)
+        closeAndWaitForReconnect(client);
+    }
+}
+
+void playerAdd(ConnectedClient client, string name)
+{
+    auto p = new ServerPlayer(name, client);
+    auto playerNumber = model.addPlayer(p, client);
+    client.player = p;
+    client.waitingForJoin = false;
+    client.send(ServerMessageType.YOU_ARE, playerNumber);
+
+    foreach (key; model.playerKeys())
+    {
+        if (key != playerNumber) {
+            client.playerJoined(key, model[key].getName);
+        }
+    }
+}
+
+void playerReconnect(ConnectedClient client, ServerPlayer player, string name)
+in {
+    assert(model.getState == GameState.WAITING_FOR_RECONNECT);
+}
+body
+{
+    int playerNumber = model.playerNumberOf(player);
+
+    if (playerNumber != -1)  // player was found in model
+    {
+        player.setName(name);
+        player.client = client;
+        client.player = player;
+        client.waitingForJoin = false;
+
+        client.send(ServerMessageType.YOU_ARE, playerNumber);
+        if (player.hasGrid) {
+            client.sendCards(playerNumber, player.getGrid);
+        }
+
+        foreach (key; model.playerKeys())
+        {
+            if (key != playerNumber)
+            {
+                client.playerJoined(key, model[key].getName);
+                if (model[key].hasGrid) {
+                    client.sendCards(key, model[key].getGrid);
+                }
+            }
+        }
+        model.getDiscardTopCard().ifPresent!( c => client.send(ServerMessageType.DISCARD_CARD, cast(int) c.rank) );
+        sendReconnectStateInfo(client);
+
+        model.playerReconnected(player);
+        model.addObserver(client);
+    }
+    else
+    {
+        writeMsg("\nERROR: upon reconnect, player not found in GameModel");
+        closeConnection(client);
+    }
+
+    disconnectedPlayers = disconnectedPlayers.remove!( a => a is player );
+
+    if (disconnectedPlayers.length == 0) {
+        model.allPlayersReconnected();
+    }
+}
+
+void sendReconnectStateInfo(ConnectedClient client)
+{
+    GameState state = model.getStateWhenWaitingBegan();
+    writeln("\n", state);
+
+    final switch (state)
+    {
+    case GameState.NOT_STARTED:
+        throw new Error("Illegal state (GameState.NOT_STARTED)");
+    case GameState.DEALING:
+        // act as if client finished deal animation and sent ready
+        clientReady(client);
+        break;
+    case GameState.FLIP_CHOICE:
+        client.chooseFlip();
+        break;
+    case GameState.PLAYER_TURN:
+        {
+            if (model.playerWhoseTurnItIs is client.player)
+            {
+                client.send(ServerMessageType.YOUR_TURN);
+                model.getDrawnCard().ifPresent!((c) {
+                    client.send(ServerMessageType.CARD, cast(int) c.rank);
+                });
+            }
+            else {
+                client.changeTurn(model.getCurrentPlayerTurn);
+            }
+        }
+        break;
+    case GameState.WAITING_FOR_RECONNECT:
+        throw new Error("Illegal state (GameState.WAITING_FOR_RECONNECT)");
+    case GameState.BETWEEN_HANDS:
+        //client.currentScores();
+        break;
+    case GameState.END_GAME:
+        throw new Error("Illegal state (GameState.END_GAME)");
+    }
+}
+
+void clientReady(ConnectedClient client)
+{
+    if (model.getState != GameState.DEALING && model.getState != GameState.WAITING_FOR_RECONNECT) {
+        return;
+    }
+    writeln("clientReady");
+
+    client.readyReceived = true;
+
+    if ( clients.all!(c => c.readyReceived) )
+    {
+        model.beginFlipChoices();
+    }
+}
+
+void playerDraw(ConnectedClient client)
+{
+    if (model.getState == GameState.PLAYER_TURN
+            && model.playerWhoseTurnItIs is client.player
+            && ! model.hasDrawnCard)
+    {
+        Card c = model.drawCard();
+        client.send(ServerMessageType.CARD, cast(int) c.rank);
+    }
+    else
+    {
+        // error
+        closeAndWaitForReconnect(client);
+    }
+}
+
+void playerPlaceDrawnCard(ConnectedClient client, int row, int col)
+{
+    if (row < 0 || row > 2 || col < 0 || col > 3) {
+        closeAndWaitForReconnect(client);
+        return;
+    }
+
+    if (model.getState == GameState.PLAYER_TURN
+            && model.playerWhoseTurnItIs is client.player
+            && model.hasDrawnCard)
+    {
+        model.exchangeDrawnCard(row, col);   // model will notify all clients
+    }
+    else
+    {
+        // error
+        closeAndWaitForReconnect(client);
+    }
+}
+
+void playerRejectDrawnCard(ConnectedClient client)
+{
+    if (model.getState == GameState.PLAYER_TURN
+            && model.playerWhoseTurnItIs is client.player
+            && model.hasDrawnCard)
+    {
+        model.discardDrawnCard();
+    }
+    else
+    {
+        // error
+        closeAndWaitForReconnect(client);
+    }
+}
+
+void playerTakeDiscardCard(ConnectedClient client, int row, int col)
+{
+    if (row < 0 || row > 2 || col < 0 || col > 3) {
+        closeAndWaitForReconnect(client);
+        return;
+    }
+
+    if (model.getState == GameState.PLAYER_TURN
+            && model.playerWhoseTurnItIs is client.player
+            && ! model.hasDrawnCard)
+    {
+        model.takeDiscardCard(row, col);
+    }
+    else
+    {
+        closeAndWaitForReconnect(client);
+    }
+}
+
+void playerFlipCard(ConnectedClient client, int row, int col)
+{
+    if (row < 0 || row > 2 || col < 0 || col > 3 || client.player[row, col].isNull)
+    {
+        closeAndWaitForReconnect(client);
+        return;
+    }
+
+    if (model.getState == GameState.PLAYER_TURN && ! model.hasDrawnCard
+         && model.playerWhoseTurnItIs is client.player
+         && client.player[row, col].isNotNull
+         && client.player[row, col].get.revealed == false)
+    {
+        model.flipCard(row, col);
+    }
+    else if (model.getState == GameState.FLIP_CHOICE
+              && client.player.getGrid.getCardsAsRange.count!(a => a.revealed) < 2
+              && client.player[row, col].isNotNull
+              && client.player[row, col].get.revealed == false)
+    {
+        model.flipCard(client.player, row, col);
+    }
+    else
+    {
+        closeAndWaitForReconnect(client);
+    }
+}
+
+void playerLeave(ConnectedClient client)
+{
+    if (client.waitingForJoin)
+    {
+        closeConnection(client);
+    }
+    else
+    {
+        model.removeObserver(client);
+        model.playerLeft(client.player);
+        closeConnection(client);
+    }
+}
+
+void pollSockets() @trusted
+{
+    socketSet.reset();
+    socketSet.add(listenerSocket);
+
+    foreach (client; clients) {
+        socketSet.add(client.socket);
+    }
+
+    auto result = Socket.select(socketSet, null, null, dur!"usecs"(100));
+
+    if (result < 1) {
+        return;
+    }
+
+    foreach (client; clients)
+    {
+        try {
+            Nullable!ClientMessage msg = client.poll(socketSet);
+            msg.ifPresent!( m => handleMessage(m, client) );
+        }
+        catch (Exception e) {
+            if (client.isMarkedForRemoval) {
+                writeMsg("\nclient marked for removal / ", e.msg);
+                continue;
+            }
+            else if (client.waitingForJoin) {
+                writeMsg("\nclosing connection before join / ", e.msg);
+                closeConnection(client);
+            }
+            else {
+                writeMsg("\nclosing connection / ", e.msg);
+                closeAndWaitForReconnect(client);
+            }
+        }
+    }
+
+    if ( socketSet.isSet(listenerSocket) )   // connection request
+    {
+        Socket sock = null;
+
+        try {
+            sock = listenerSocket.accept();
+            auto client = new ConnectedClient(sock);
+            clients ~= client;
+        }
+        catch (SocketAcceptException e) {
+            writeMsg("\nError accepting: ", e.msg);
+
+            if (sock) {
+                sock.close();
+            }
+        }
+    }
+
+    for (size_t i = 0; i < clients.length; i++)
+    {
+        if (clients[i].isMarkedForRemoval)
+        {
+            clients = clients.remove(i);
+            i--;
+        }
+    }
+}
+
+// terminate the connection of a misbehaving client but keep player in the game
+void closeAndWaitForReconnect(ConnectedClient client)
+{
+    if (model.getState != GameState.NOT_STARTED && model.getState != GameState.END_GAME)
+    {
+        ServerPlayer p = client.player;
+        disconnectedPlayers ~= p;
+        model.removeObserver(client);
+        model.waitForReconnect(p);
+        p.client = null;
+        closeConnection(client);
+    }
+    else
+    {
+        playerLeave(client);
+    }
+}
+
+void closeConnection(ConnectedClient client) nothrow @nogc
+{
+    Socket s = client.socket();
+    s.shutdown(SocketShutdown.BOTH);
+    s.close();
+    client.markForRemoval();
+}

@@ -1,0 +1,18 @@
+name "skyjo"
+configuration "SkyjoApp" {
+    targetType "executable"
+    mainSourceFile "source/skyjo.d"
+    excludedSourceFiles "source/server.d"
+    dependency "derelict-sdl2" version="~>2.0.2"
+    dependency "derelict-util" version="*"
+    targetName "skyjo"
+}
+
+configuration "SkyjoServer" {
+    targetType "executable"
+    mainSourceFile "source/server.d"
+    excludedSourceFiles "source/skyjo.d" "source/label.d" "source/keyboard.d" "source/animation.d" "source/background.d"
+    dependency "derelict-sdl2" version="~>2.0.2"
+    dependency "derelict-util" version="*"
+    targetName "skyjo-server"
+}
