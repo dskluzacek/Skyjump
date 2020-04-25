@@ -25,6 +25,12 @@ final class ServerPlayer : PlayerImpl!PlayerGrid
     this(in char[] name, ConnectedClient client)
     {
         super(name);
+        this.client = client;
+    }
+
+    ServerGameModel.Observer observer() pure nothrow @nogc
+    {
+        return client;
     }
 }
 
@@ -117,6 +123,11 @@ final class ConnectedClient : ServerGameModel.Observer
     override void changeTurn(int playerNum)
     {
         send(ServerMessageType.CHANGE_TURN, playerNum);
+    }
+
+    override void yourTurn()
+    {
+        send(ServerMessageType.YOUR_TURN);
     }
 
     override void drawpile(int playerNum)

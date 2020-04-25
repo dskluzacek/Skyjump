@@ -53,22 +53,22 @@ final class Card
         this(CardRank.UNKNOWN);
     }
 
-    CardRank rank() const pure nothrow
+    CardRank rank() const pure nothrow @nogc
     {
         return _rank;
     }
 
-    bool revealed() @property const pure nothrow
+    bool revealed() @property const pure nothrow @nogc
     {
         return _revealed;
     }
 
-    void revealed(bool reveal) @property pure nothrow
+    void revealed(bool reveal) @property pure nothrow @nogc
     {
         _revealed = reveal;
     }
 
-    int value() const pure nothrow
+    int value() const pure nothrow @nogc
     {
         if (_rank == CardRank.UNKNOWN)
         {

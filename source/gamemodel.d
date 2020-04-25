@@ -2,7 +2,7 @@ module gamemodel;
 @safe:
 
 import std.typecons : Nullable, nullable;
-import std.algorithm : each, remove, count;
+import std.algorithm : each, remove, count, all;
 import std.exception : enforce;
 import std.conv : to;
 
@@ -27,23 +27,13 @@ struct GameModel
     private
     {
         Player[ubyte] players;
-        GameState currentState = GameState.NOT_STARTED;
         DiscardStack discardPile = new DiscardStack();
         ubyte playerCurrentTurn;
         Nullable!ubyte playerOut;
         int handNumber = 1;
     }
-    //GameState currentState = GameState.NOT_STARTED;
 
     @disable this(this);
-
-    ubyte nextPlayerTurn() pure nothrow
-    {
-        currentState = GameState.PLAYER_TURN;
-        ubyte next = getNextPlayerAfter(playerCurrentTurn);
-        playerCurrentTurn = next;
-        return next;
-    }
 
     ubyte getNextPlayerAfter(ubyte playerKey) const pure nothrow
     {
@@ -82,11 +72,6 @@ struct GameModel
         assert(model.playerCurrentTurn == 5);
         model.nextPlayerTurn();
         assert(model.playerCurrentTurn == 0);
-    }
-
-    GameState getState() const pure nothrow
-    {
-        return currentState;
     }
 
     void pushToDiscard(Card c) pure
@@ -205,6 +190,7 @@ struct ServerGameModel
     alias baseModel this;
 
     private GameModel baseModel;
+    private GameState currentState = GameState.NOT_STARTED;
     private Deck deck = new Deck();
     private Card drawnCard;
     private Observer[] observers;
@@ -264,9 +250,9 @@ struct ServerGameModel
         return baseModel.getPlayer(index);
     }
 
-    GameState getState()
+    GameState getState() const pure nothrow
     {
-        return baseModel.getState();
+        return currentState;
     }
 
     bool hasDrawnCard() const pure nothrow
@@ -307,7 +293,7 @@ struct ServerGameModel
             (cast(ServerPlayer) p).setGrid( new PlayerGrid() );
         }
 
-        assert(deck.size() > numberOfPlayers() * 12);
+        enforce!Error(deck.size > numberOfPlayers() * 12, "deck doesn't have enough cards");
 
         foreach (n; 0 .. 12)
         {
@@ -330,6 +316,30 @@ struct ServerGameModel
 
         currentState = GameState.FLIP_CHOICE;
         observers.each!( obs => obs.chooseFlip() );
+    }
+
+    void beginTurn(bool firstTurn = false)()
+    {
+        static if (firstTurn)
+        {
+            assert(currentState == GameState.FLIP_CHOICE);
+
+            currentState = GameState.PLAYER_TURN;
+
+            Nullable!Card flip = deck.randomCard();
+            enforce!Error(flip.isNotNull, "randomCard() returned null Nullable!Card");
+            discardPile.push(flip.get);
+            observers.each!( obs => obs.discardFlippedOver(flip.get.rank) );
+        }
+        else
+        {
+            playerCurrentTurn = getNextPlayerAfter(playerCurrentTurn);
+        }
+        assert(currentState == GameState.PLAYER_TURN);
+        assert(drawnCard is null);
+
+        forEachOtherObserver!( obs => obs.changeTurn(playerCurrentTurn) );
+        (cast(ServerPlayer) players[playerCurrentTurn]).observer().yourTurn();
     }
 
     // Draws a card for the current player and returns it. Other clients/observers are notified.
@@ -425,6 +435,8 @@ struct ServerGameModel
         Card card = player[row, col].get;
         card.revealed = true;
         observers.each!( obs => obs.revealed(playerNumberOf(player), row, col, card.rank) );
+
+        checkIfShouldBeginFirstTurn();
     }
 
     void playerLeft(Player p)
@@ -441,7 +453,7 @@ struct ServerGameModel
                 if (currentState != GameState.NOT_STARTED && currentState != GameState.END_GAME
                     && currentState != GameState.BETWEEN_HANDS)
                 {
-                    assert(p.hasGrid);
+                    enforce!Error(p.hasGrid, "expected Player to have a PlayerGrid");
 
                     discardPile.bury( p.getGrid().getCardsAsRange() );
                     p.getGrid().clear();
@@ -449,7 +461,7 @@ struct ServerGameModel
 
                 if (currentState == GameState.PLAYER_TURN && keyValue.key == playerCurrentTurn)
                 {
-                    nextPlayerTurn();
+                    beginTurn();
                 }
                 return;
             }
@@ -460,11 +472,6 @@ struct ServerGameModel
 
     void waitForReconnect(Player p)
     {
-        //if (currentState != GameState.WAITING_FOR_RECONNECT) {
-        //    stateWhenWaitingBegan = currentState;
-        //    currentState = GameState.WAITING_FOR_RECONNECT;
-        //}
-
         foreach (keyValue; players.byKeyValue)
         {
             if (p is keyValue.value) {
@@ -511,6 +518,7 @@ struct ServerGameModel
         void discardFlippedOver(int card);
         void chooseFlip();
         void changeTurn(int playerNum);
+        void yourTurn();
         void drawpile(int playerNum);
         void drawpilePlace(int playerNum, int row, int col, int card, int discard);
         void drawpileReject(int playerNum, int card);
@@ -524,6 +532,38 @@ struct ServerGameModel
         void reconnected(int playerNum);
         void currentScores(int[int] scores);
         void winner(int playerNum);
+    }
+
+    private void checkIfShouldBeginFirstTurn()
+    {
+        if ( players.byValue.all!(p => p.getGrid.getCardsAsRange.count!(c => c.revealed) == 2) )
+        {
+            if (handNumber == 1)
+            {
+                Player maxPlayer;
+                int max = int.min;
+
+                foreach (p; players.byValue)
+                {
+                    int val = p.getGrid.totalRevealedValue;
+
+                    if (val > max) {
+                        maxPlayer = p;
+                        max = val;
+                    }
+                }
+                assert(maxPlayer !is null);
+                assert(max != int.min);
+
+                playerFirstTurn = cast(ubyte) playerNumberOf(maxPlayer);
+            }
+            else
+            {
+                playerFirstTurn = getNextPlayerAfter(playerFirstTurn);
+            }
+            playerCurrentTurn = playerFirstTurn;
+            beginTurn!true();
+        }
     }
 
     private void checkColumnEquality(int col)

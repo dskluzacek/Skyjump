@@ -36,7 +36,8 @@ import label;
 enum window_title = "Skyjo";
 enum version_str  = "pre-alpha";
 
-enum draw_pile_position = Point(1056, 15);
+enum draw_pile_position = Point(692, 15);
+enum discard_pile_position = Point(1056, 15);
 
 enum total_audio_channels        = 8,
      num_reserved_audio_channels = 3;
@@ -45,7 +46,7 @@ auto unknown_card = new immutable Card(CardRank.UNKNOWN);
 
 static this()
 {
-	drawPile = new Card(CardRank.UNKNOWN);
+//	drawPile = new Card(CardRank.UNKNOWN);
 	opponentGrids = new OpponentGrid[4];
 	socketSet = new SocketSet();
 }
@@ -53,19 +54,21 @@ static this()
 private
 {
 	GameModel model;
-	ubyte localPlayerNumber;
 	UIMode currentMode = UIMode.PRE_GAME;
+	ubyte localPlayerNumber;
 	LocalPlayer localPlayer;
+	SocketSet socketSet;
 	ConnectionToServer connection;
 	OpponentGrid[] opponentGrids;
 	Background gameBackground;
 	Font font;
 	Sound drawSound;
-	Card drawPile;
+	Card discardPile;
 	DealAnimation dealAnim;
-	SocketSet socketSet;
 	Point lastMousePosition;
 	ubyte cardsRevealed;
+
+	alias drawPile = unknown_card;
 }
 
 enum UIMode
@@ -79,8 +82,6 @@ enum UIMode
 	DRAWN_CARD_ACTION,
 	WAITING
 }
-
-
 
 void main(string[] args) @system
 {
@@ -194,7 +195,7 @@ void load(ref Renderer renderer)
 	opponentGrids[2] = new OpponentGrid(Point(1464, 40), NamePlacement.BELOW, font, renderer);
 	opponentGrids[3] = new OpponentGrid(Point(1464, 580), NamePlacement.ABOVE, font, renderer);
 
-	gameBackground = new Background( renderer.loadTexture("assets/felt.jpg") );
+	gameBackground = new Background( renderer.loadTexture("assets/wood.png") );
 
 	Card.setTexture( CardRank.NEGATIVE_TWO, renderer.loadTexture("assets/-2.png") );
 	Card.setTexture( CardRank.NEGATIVE_ONE, renderer.loadTexture("assets/-1.png") );
@@ -211,7 +212,7 @@ void load(ref Renderer renderer)
 	Card.setTexture( CardRank.TEN, renderer.loadTexture("assets/10.png") );
 	Card.setTexture( CardRank.ELEVEN, renderer.loadTexture("assets/11.png") );
 	Card.setTexture( CardRank.TWELVE, renderer.loadTexture("assets/12.png") );
-	Card.setTexture( CardRank.UNKNOWN, renderer.loadTexture("assets/red-back.png") );
+	Card.setTexture( CardRank.UNKNOWN, renderer.loadTexture("assets/back.png") );
 
 	drawSound = loadWAV("assets/playcard.wav");
 }
@@ -313,6 +314,10 @@ void render(ref Window window, ref Renderer renderer, ClickablePlayerGrid grid)
 
 	drawPile.draw(renderer, draw_pile_position, card_large_width, card_large_height);
 
+	if (discardPile !is null) {
+		discardPile.draw(renderer, discard_pile_position, card_large_width, card_large_height);
+	}
+
 	if (currentMode == UIMode.DEALING) {
 		dealAnim.render(renderer);
 	}
@@ -392,6 +397,10 @@ void handleMessage(ServerMessage message)
 		beginDealing(message.playerNumber);
 		break;
 	case ServerMessageType.DISCARD_CARD:
+		Card c = new Card(message.card1);
+		c.revealed = true;
+		model.pushToDiscard(c);
+		discardPile = c;
 		break;
 	case ServerMessageType.CHANGE_TURN:
 		break;
@@ -602,7 +611,7 @@ final class OpponentGrid
 			= position.offset(offset_x, placement == NamePlacement.ABOVE ? offset_y_above : offset_y_below);
 
 		nameLabel = new Label("", font);
-		nameLabel.setColor(SDL_Color(255, 255, 255, 255));
+		//nameLabel.setColor(SDL_Color(255, 255, 255, 255));
 		() @trusted { nameLabel.setRenderer(&renderer); } ();
 		nameLabel.autoReRender = true;
 		writeln("labelPosition= ", labelPosition.x, " ", labelPosition.y);

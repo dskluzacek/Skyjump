@@ -75,6 +75,20 @@ class PlayerGrid
         return chain(cards[0], cards[1], cards[2]).filter!( a => a !is null );
     }
 
+    final int totalRevealedValue() pure nothrow @nogc
+    {
+        int total = 0;
+
+        foreach (Card c; getCardsAsRange())
+        {
+            if (c.revealed) {
+                total += c.value;
+            }
+        }
+
+        return total;
+    }
+
     final void clear() pure nothrow @nogc
     {
         foreach (row; 0 .. 3)
