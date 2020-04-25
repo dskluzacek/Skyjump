@@ -153,27 +153,16 @@ void playerJoin(ConnectedClient client, string name)
 {
     if (disconnectedPlayers.length == 1)
     {
-        if (model.getState == GameState.WAITING_FOR_RECONNECT)
-        {
-            playerReconnect(client, disconnectedPlayers[0], name);
-        }
-        else
-        {
-            client.send(ServerMessageType.IN_PROGRESS);
-            closeConnection(client);
-        }
+        playerReconnect(client, disconnectedPlayers[0], name);
         return;
     }
     else if (disconnectedPlayers.length > 1)
     {
-        if (model.getState == GameState.WAITING_FOR_RECONNECT)
+        foreach (player; disconnectedPlayers)
         {
-            foreach (player; disconnectedPlayers)
-            {
-                if (player.getName() == name) {
-                    playerReconnect(client, player, name);
-                    return;
-                }
+            if (player.getName() == name) {
+                playerReconnect(client, player, name);
+                return;
             }
         }
 
@@ -224,7 +213,7 @@ void playerAdd(ConnectedClient client, string name)
 
 void playerReconnect(ConnectedClient client, ServerPlayer player, string name)
 in {
-    assert(model.getState == GameState.WAITING_FOR_RECONNECT);
+    assert(disconnectedPlayers.length > 0);
 }
 body
 {
@@ -253,18 +242,19 @@ body
             }
         }
         model.getDiscardTopCard().ifPresent!( c => client.send(ServerMessageType.DISCARD_CARD, cast(int) c.rank) );
-        sendReconnectStateInfo(client);
+
+        disconnectedPlayers = disconnectedPlayers.remove!( a => a is player );
 
         model.playerReconnected(player);
         model.addObserver(client);
+        sendReconnectStateInfo(client);
     }
     else
     {
         writeMsg("\nERROR: upon reconnect, player not found in GameModel");
+        disconnectedPlayers = disconnectedPlayers.remove!( a => a is player );
         closeConnection(client);
     }
-
-    disconnectedPlayers = disconnectedPlayers.remove!( a => a is player );
 
     if (disconnectedPlayers.length == 0) {
         model.allPlayersReconnected();
@@ -273,8 +263,8 @@ body
 
 void sendReconnectStateInfo(ConnectedClient client)
 {
-    GameState state = model.getStateWhenWaitingBegan();
-    writeln("\n", state);
+    GameState state = model.getState();
+    writeMsg("\n", state);
 
     final switch (state)
     {
@@ -301,11 +291,9 @@ void sendReconnectStateInfo(ConnectedClient client)
             }
         }
         break;
-    case GameState.WAITING_FOR_RECONNECT:
-        throw new Error("Illegal state (GameState.WAITING_FOR_RECONNECT)");
     case GameState.BETWEEN_HANDS:
-        //client.currentScores();
-        break;
+        throw new Error("not implemented");
+        //break;
     case GameState.END_GAME:
         throw new Error("Illegal state (GameState.END_GAME)");
     }
@@ -313,14 +301,15 @@ void sendReconnectStateInfo(ConnectedClient client)
 
 void clientReady(ConnectedClient client)
 {
-    if (model.getState != GameState.DEALING && model.getState != GameState.WAITING_FOR_RECONNECT) {
+    if (model.getState != GameState.DEALING) {
+        writeMsg("\nERROR: clientReady during invalid state: ", model.getState);
         return;
     }
-    writeln("clientReady");
+    writeMsg("\nclientReady");
 
     client.readyReceived = true;
 
-    if ( clients.all!(c => c.readyReceived) )
+    if (clients.all!(c => c.readyReceived) && disconnectedPlayers.length == 0)
     {
         model.beginFlipChoices();
     }

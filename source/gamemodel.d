@@ -18,7 +18,6 @@ enum GameState
     DEALING,
     FLIP_CHOICE,
     PLAYER_TURN,
-    WAITING_FOR_RECONNECT,
     BETWEEN_HANDS,
     END_GAME
 }
@@ -209,7 +208,6 @@ struct ServerGameModel
     private Deck deck = new Deck();
     private Card drawnCard;
     private Observer[] observers;
-    private GameState stateWhenWaitingBegan;
     private ubyte dealer = 0;
     private ubyte playerFirstTurn;
 
@@ -271,11 +269,6 @@ struct ServerGameModel
         return baseModel.getState();
     }
 
-    GameState getStateWhenWaitingBegan()
-    {
-        return stateWhenWaitingBegan;
-    }
-
     bool hasDrawnCard() const pure nothrow
     {
         return drawnCard !is null;
@@ -333,8 +326,7 @@ struct ServerGameModel
 
     void beginFlipChoices()
     {
-        // TODO fix
-        assert(currentState == GameState.DEALING || stateWhenWaitingBegan == GameState.DEALING);
+        assert(currentState == GameState.DEALING);
 
         currentState = GameState.FLIP_CHOICE;
         observers.each!( obs => obs.chooseFlip() );
@@ -468,10 +460,10 @@ struct ServerGameModel
 
     void waitForReconnect(Player p)
     {
-        if (currentState != GameState.WAITING_FOR_RECONNECT) {
-            stateWhenWaitingBegan = currentState;
-            currentState = GameState.WAITING_FOR_RECONNECT;
-        }
+        //if (currentState != GameState.WAITING_FOR_RECONNECT) {
+        //    stateWhenWaitingBegan = currentState;
+        //    currentState = GameState.WAITING_FOR_RECONNECT;
+        //}
 
         foreach (keyValue; players.byKeyValue)
         {
@@ -486,8 +478,6 @@ struct ServerGameModel
 
     void playerReconnected(Player p)
     {
-        assert(currentState == GameState.WAITING_FOR_RECONNECT);
-
         foreach (keyValue; players.byKeyValue)
         {
             if (p is keyValue.value) {
@@ -501,10 +491,6 @@ struct ServerGameModel
 
     void allPlayersReconnected() pure nothrow
     {
-        assert(currentState == GameState.WAITING_FOR_RECONNECT);
-
-        currentState = stateWhenWaitingBegan;
-
         // TODO
     }
 
