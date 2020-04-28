@@ -164,12 +164,27 @@ struct GameModel
         return players.byKey();
     }
 
-    void setPlayerOut(ubyte playerNum)
+    Nullable!Player playerWhoseTurnItIs() pure nothrow
+    {
+        if (playerCurrentTurn in players) {
+            return players[playerCurrentTurn].nullable;
+        }
+        else {
+            return (Nullable!Player).init;
+        }
+    }
+
+    void setPlayerCurrentTurn(ubyte player) pure nothrow
+    {
+        playerCurrentTurn = player;
+    }
+
+    void setPlayerOut(ubyte playerNum) pure nothrow
     {
         playerOut = playerNum;
     }
 
-    Nullable!ubyte getPlayerOut()
+    Nullable!ubyte getPlayerOut() pure nothrow
     {
         return playerOut;
     }
@@ -220,13 +235,13 @@ struct ServerGameModel
 
     Player playerWhoseTurnItIs() pure nothrow
     {
-        auto result = players[playerCurrentTurn];
+        auto result = baseModel.playerWhoseTurnItIs();
 
-        if (result !is null) {
-            return result;
+        if (result.isNotNull) {
+            return result.get;
         }
         else {
-            throw new Error("players[playerCurrentTurn] was null");
+            throw new Error("invalid state");
         }
     }
 

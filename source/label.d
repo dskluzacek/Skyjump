@@ -57,7 +57,7 @@ final class Label
         setPosition(x, y);
     }
 
-    void setText(string str)
+    void setText(string str) @trusted
     {
         if (str == text)
             return;
@@ -74,7 +74,7 @@ final class Label
 
     }
 
-    void setColor(SDL_Color color)
+    void setColor(SDL_Color color) @trusted
     {
         if (color == this.color)
             return;

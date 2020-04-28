@@ -17,7 +17,7 @@ import playergrid;
 import card;
 import net;
 
-enum ushort PORT = 7685;
+enum ushort PORT = 7684;
 enum BACKLOG = 5;
 enum MAX_PLAYERS = 5;
 
@@ -42,25 +42,6 @@ void main() @system
     listenerSocket.blocking = false;
     listenerSocket.bind(new InternetAddress(PORT));
     listenerSocket.listen(BACKLOG);
-
-    //ServerPlayer p = new ServerPlayer("David", null);
-    //p.setGrid( new PlayerGrid() );
-    //p.getGrid().setCards([[new Card(CardRank.ONE), new Card(CardRank.TWO), null, new Card(CardRank.FOUR)],
-    //                      [new Card(CardRank.NEGATIVE_TWO), null, new Card(CardRank.SIX), new Card(CardRank.SEVEN)],
-    //                      [new Card(CardRank.ELEVEN), new Card(CardRank.NINE), null, new Card(CardRank.TWELVE)]]);
-    //p[0, 0].revealed = true;
-    //p[0, 3].revealed = true;
-    //p[1, 0].revealed = true;
-    //p[2, 3].revealed = true;
-    //
-    //disconnectedPlayers ~= p;
-    //model.addPlayer(p, new BlackHole!(ServerGameModel.Observer)());
-    //
-    //model.currentState = GameState.PLAYER_TURN;
-    //model.drawCard();
-    //model.discardDrawnCard();
-    //
-    //model.waitForReconnect(p);
 
     write("\n$ ");
     consoleThread = spawn(&consoleReader, thisTid);

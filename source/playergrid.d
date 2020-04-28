@@ -168,8 +168,8 @@ class ClientPlayerGrid
 
     override Point getCardDestination() const pure nothrow @nogc
     {
-        enum int x = (med_col_coord[1] + card_medium_width + med_col_coord[2]) / 2 - (card_large_width / 2);
-        enum int y = med_row_coord[1] + (card_medium_height / 2) - (card_large_height / 2);
+        enum int x = (c_coord[1] + card_w + c_coord[2]) / 2 - (card_large_width / 2);
+        enum int y = r_coord[1] + (card_h / 2) - (card_large_height / 2);
 
         return position.offset(x, y);
     }
@@ -201,19 +201,14 @@ final class ClickablePlayerGrid :
 {
     private
     {
-        HighlightingMode mode = HighlightingMode.OFF;
+        GridHighlightMode mode = GridHighlightMode.OFF;
         Nullable!Card cardBeingClicked;
         void delegate(int, int) clickHandler;
         Point lastMousePosition;
         bool mouseDown;
     }
 
-    enum HighlightingMode
-    {
-        OFF,
-        SELECTION,
-        PLACEMENT
-    }
+
 
     this(Point position) pure nothrow
     {
@@ -247,6 +242,7 @@ final class ClickablePlayerGrid :
         }
 
         mouseDown = false;
+        cardBeingClicked = (Nullable!Card).init;
     }
 
     Nullable!Card getCardByMousePosition(Point mouse) pure nothrow
@@ -261,12 +257,12 @@ final class ClickablePlayerGrid :
         }
     }
 
-    void setHighlightingMode(HighlightingMode m) pure nothrow @nogc
+    void setHighlightingMode(GridHighlightMode m) pure nothrow @nogc
     {
         this.mode = m;
     }
 
-    void setClickHandler(void delegate(int, int) @safe handler) pure nothrow @nogc
+    void onClick(void delegate(int, int) @safe handler) @property pure nothrow @nogc
     {
         this.clickHandler = handler;
     }
@@ -291,10 +287,10 @@ final class ClickablePlayerGrid :
     {
         bool shouldHighlight = false;
 
-        if (mode == HighlightingMode.SELECTION)
+        if (mode == GridHighlightMode.SELECTION)
         {
-            if ( (mouseDown && cardBeingClicked.isNotNull && cardBeingClicked.get is c)
-                || (!mouseDown && getBox(row, col).containsPoint(lastMousePosition)) )
+            if ( ! c.revealed && ((mouseDown && cardBeingClicked.isNotNull && cardBeingClicked.get is c)
+                || (!mouseDown && getBox(row, col).containsPoint(lastMousePosition))) )
             {
                 shouldHighlight = true;
             }
@@ -333,4 +329,11 @@ final class ClickablePlayerGrid :
                          card_large_width,
                          card_large_height);
     }
+}
+
+enum GridHighlightMode
+{
+    OFF,
+    SELECTION,
+    PLACEMENT
 }

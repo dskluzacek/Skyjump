@@ -42,11 +42,15 @@ enum discard_pile_position = Point(1056, 15);
 enum total_audio_channels        = 8,
      num_reserved_audio_channels = 3;
 
-auto unknown_card = new immutable Card(CardRank.UNKNOWN);
+enum anim_duration = 285.msecs;
+
+Card unknown_card;
 
 static this()
 {
-//	drawPile = new Card(CardRank.UNKNOWN);
+	unknown_card = new Card(CardRank.UNKNOWN);
+	drawPile = new DrawPile(draw_pile_position);
+	discardPile = new DiscardPile(discard_pile_position);
 	opponentGrids = new OpponentGrid[4];
 	socketSet = new SocketSet();
 }
@@ -62,13 +66,14 @@ private
 	OpponentGrid[] opponentGrids;
 	Background gameBackground;
 	Font font;
-	Sound drawSound;
-	Card discardPile;
+	Sound dealSound;
+	Sound flipSound;
+	DrawPile drawPile;
+	DiscardPile discardPile;
+	MoveAnimation moveAnim;
 	DealAnimation dealAnim;
 	Point lastMousePosition;
-	ubyte cardsRevealed;
-
-	alias drawPile = unknown_card;
+	ubyte numCardsRevealed;
 }
 
 enum UIMode
@@ -80,6 +85,7 @@ enum UIMode
 	OPPONENT_TURN,
 	MY_TURN_ACTION,
 	DRAWN_CARD_ACTION,
+	SWAP_CARD_ACTION,
 	WAITING
 }
 
@@ -214,7 +220,8 @@ void load(ref Renderer renderer)
 	Card.setTexture( CardRank.TWELVE, renderer.loadTexture("assets/12.png") );
 	Card.setTexture( CardRank.UNKNOWN, renderer.loadTexture("assets/back.png") );
 
-	drawSound = loadWAV("assets/playcard.wav");
+	dealSound = loadWAV("assets/playcard.wav");
+	flipSound = loadWAV("assets/cardPlace3.wav");
 }
 
 void masterLoop( ref Window window,
@@ -222,21 +229,45 @@ void masterLoop( ref Window window,
                  ref bool quit,
                  ref KeyboardController controller )
 {
-//	MoveAnimation anim = new MoveAnimation(card, card_large_width, card_large_height, Point(0, 0), Point(150, 600), 750.msecs);
-
-
-
 	Socket socket = new TcpSocket();
-	socket.connect(new InternetAddress("localhost", 7685));
+	socket.connect(new InternetAddress("localhost", 7684));
 	connection = new ConnectionToServer(socket);
 	connection.send(ClientMessageType.JOIN, localPlayer.getName);
 	socket.blocking = false;
 
-	//model.setPlayer(localPlayer, 0);
-	//playerJoined(1, "Joe");
-	//playerJoined(2, "Dan");
-	//playerJoined(3, "Blake");
-	//playerJoined(4, "Greg");
+	auto grid = localPlayer.getGrid();
+
+	addObserver!"mouseDown"((event) {
+		grid.mouseButtonDown(Point(event.x, event.y));
+	});
+	addObserver!"mouseUp"((event) {
+		grid.mouseButtonUp(Point(event.x, event.y));
+	});
+	addObserver!"mouseMotion"((event) {
+		grid.mouseMoved(Point(event.x, event.y));
+	});
+
+	addObserver!"mouseDown"((event) {
+		drawPile.mouseButtonDown(Point(event.x, event.y));
+	});
+	addObserver!"mouseUp"((event) {
+		drawPile.mouseButtonUp(Point(event.x, event.y));
+	});
+	addObserver!"mouseMotion"((event) {
+		drawPile.mouseMoved(Point(event.x, event.y));
+	});
+
+	addObserver!"mouseDown"((event) {
+		discardPile.mouseButtonDown(Point(event.x, event.y));
+	});
+	addObserver!"mouseUp"((event) {
+		discardPile.mouseButtonUp(Point(event.x, event.y));
+	});
+	addObserver!"mouseMotion"((event) {
+		discardPile.mouseMoved(Point(event.x, event.y));
+	});
+
+	grid.onClick = (int r, int c) {};
 
 	mainLoop(window, renderer, quit, controller);
 }
@@ -246,22 +277,6 @@ void mainLoop( ref Window window,
                ref bool quit,
                ref KeyboardController controller )
 {
-	auto grid = localPlayer.getGrid();
-
-	addObserver!"mouseDown"( (event) {
-		grid.mouseButtonDown(Point(event.x, event.y));
-	});
-
-	addObserver!"mouseUp"( (event) {
-		grid.mouseButtonUp(Point(event.x, event.y));
-	});
-
-	addObserver!"mouseMotion"( (event) {
-		grid.mouseMoved(Point(event.x, event.y));
-	});
-
-	grid.setClickHandler((int r, int c) {}.asDelegate);
-
 	MonoTime currentTime;
 	MonoTime lastTime = MonoTime.currTime();
 
@@ -272,7 +287,7 @@ void mainLoop( ref Window window,
 
 		if ( elapsed < dur!"usecs"(16_600) )
 		{
-			sleepFor(dur!"usecs"(16_600) - elapsed);
+			sleepFor(dur!"usecs"(16_600) - elapsed);   // limits the framerate to about 60 fps
 		}
 		currentTime = MonoTime.currTime();
 		elapsed = currentTime - lastTime;
@@ -283,13 +298,15 @@ void mainLoop( ref Window window,
 
 		if (currentMode == UIMode.DEALING)
 		{
-			if ( dealAnim.isFinished() ) {  // isFinished has side effects!
-				connection.send(ClientMessageType.READY);
+			if ( dealAnim.process() ) {
+				connection.send(ClientMessageType.READY);  // let the server know animation finished
 				currentMode = UIMode.NO_ACTION;
 			}
 		}
 
-		render(window, renderer, grid);
+		moveAnim.process();
+
+		render(window, renderer, localPlayer.getGrid);
 	}
 }
 
@@ -300,23 +317,29 @@ void render(ref Window window, ref Renderer renderer, ClickablePlayerGrid grid)
 	gameBackground.render(renderer, window);
 	renderer.setLogicalSize(1920, 1080);
 
-	bool windowHasFocus = window.testFlag(SDL_WINDOW_INPUT_FOCUS);
+	immutable windowHasFocus = window.testFlag(SDL_WINDOW_INPUT_FOCUS);
 
-	if (windowHasFocus && currentMode == UIMode.FLIP_ACTION) {
-		grid.setHighlightingMode(ClickablePlayerGrid.HighlightingMode.SELECTION);
+	if (windowHasFocus &&
+		(currentMode == UIMode.FLIP_ACTION || currentMode == UIMode.MY_TURN_ACTION))
+	{
+		grid.setHighlightingMode(GridHighlightMode.SELECTION);
+	}
+	else if (windowHasFocus &&
+		(currentMode == UIMode.SWAP_CARD_ACTION || currentMode == UIMode.DRAWN_CARD_ACTION))
+	{
+		grid.setHighlightingMode(GridHighlightMode.SELECTION); // PLACEMENT
 	}
 	else {
-		grid.setHighlightingMode(ClickablePlayerGrid.HighlightingMode.OFF);
+		grid.setHighlightingMode(GridHighlightMode.OFF);
 	}
 
 	grid.render(renderer);
 	opponentGrids.each!( opp => opp.render(renderer) );
 
-	drawPile.draw(renderer, draw_pile_position, card_large_width, card_large_height);
+	drawPile.render(renderer);
+	discardPile.render(renderer);
 
-	if (discardPile !is null) {
-		discardPile.draw(renderer, discard_pile_position, card_large_width, card_large_height);
-	}
+	moveAnim.render(renderer);
 
 	if (currentMode == UIMode.DEALING) {
 		dealAnim.render(renderer);
@@ -334,7 +357,7 @@ void pollServer(ConnectionToServer connection)
 {
 	socketSet.reset();
 	socketSet.add(connection.socket);
-	int result = Socket.select(socketSet, null, null, dur!"usecs"(100));
+	Socket.select(socketSet, null, null, dur!"usecs"(100));
 
 	Nullable!ServerMessage message = connection.poll(socketSet);
 
@@ -375,11 +398,15 @@ void pollInputEvents(ref bool quit, ref KeyboardController controller)
 		}
 		else if (e.type == SDL_MOUSEBUTTONDOWN && e.button.button == SDL_BUTTON_LEFT)
 		{
-			notifyObservers!"mouseDown"(e.button);
+			if (moveAnim.isFinished) {
+				notifyObservers!"mouseDown"(e.button);
+			}
 		}
 		else if (e.type == SDL_MOUSEBUTTONUP && e.button.button == SDL_BUTTON_LEFT)
 		{
-			notifyObservers!"mouseUp"(e.button);
+			if (moveAnim.isFinished) {
+				notifyObservers!"mouseUp"(e.button);
+			}
 		}
 	}
 }
@@ -397,12 +424,11 @@ void handleMessage(ServerMessage message)
 		beginDealing(message.playerNumber);
 		break;
 	case ServerMessageType.DISCARD_CARD:
-		Card c = new Card(message.card1);
-		c.revealed = true;
-		model.pushToDiscard(c);
-		discardPile = c;
+		flipOverFirstDiscardCard(message.card1);
 		break;
 	case ServerMessageType.CHANGE_TURN:
+		currentMode = UIMode.OPPONENT_TURN;
+		model.setPlayerCurrentTurn(message.playerNumber.to!ubyte);
 		break;
 	case ServerMessageType.DRAWPILE:
 		break;
@@ -434,6 +460,7 @@ void handleMessage(ServerMessage message)
 	case ServerMessageType.WINNER:
 		break;
 	case ServerMessageType.YOUR_TURN:
+		beginOurTurn();
 		break;
 	case ServerMessageType.CHOOSE_FLIP:
 		beginFlipChoices();
@@ -460,6 +487,16 @@ void handleMessage(ServerMessage message)
 	}
 }
 
+void enterNoActionMode()
+{
+	currentMode = UIMode.NO_ACTION;
+	localPlayer.getGrid.onClick = (a, b) {};
+	drawPile.enabled = false;
+	drawPile.onClick = {};
+	discardPile.enabled = false;
+	discardPile.onClick = {};
+}
+
 void playerJoined(int number, string name)
 {
 	ClientPlayer p = new ClientPlayer(name);
@@ -484,7 +521,7 @@ void beginDealing(int dealer)
 	clientGrids.reserve(model.numberOfPlayers);
 
 	ubyte num = model.getNextPlayerAfter(cast(ubyte) dealer);
-	ubyte first = num;
+	immutable first = num;
 
 	do
 	{
@@ -493,38 +530,40 @@ void beginDealing(int dealer)
 	}
 	while (num != first);
 
-	dealAnim = new DealAnimation(draw_pile_position, clientGrids, 285.msecs,
-	                             unknown_card, drawSound);
+	dealAnim = new DealAnimation(draw_pile_position, clientGrids, anim_duration,
+	                             unknown_card, dealSound);
 }
 
 void beginFlipChoices()
 {
 	ClickablePlayerGrid grid = localPlayer.getGrid();
-	auto revealedCount = grid.getCardsAsRange.count!(a => a.revealed);
+	immutable revealedCount = grid.getCardsAsRange.count!(a => a.revealed);
 
 	if (revealedCount < 2)
 	{
-		cardsRevealed = cast(ubyte) revealedCount;
+		numCardsRevealed = cast(ubyte) revealedCount;
 		currentMode = UIMode.FLIP_ACTION;
-		grid.setClickHandler((int row, int col)
+		grid.onClick = (int row, int col)
 		{
-			writeln("click handler");
+			if (grid.getCards[row][col].revealed) {
+				return;
+			}
 
-			if (cardsRevealed < 2)
+			if (numCardsRevealed < 2)
 			{
-				++cardsRevealed;
+				++numCardsRevealed;
 				connection.send(ClientMessageType.FLIP, row, col);
+				flipSound.play();
 
-				if (cardsRevealed == 2)
-				{
-					currentMode = UIMode.NO_ACTION;
-					grid.setClickHandler( (int a, int b){}.asDelegate );
+				if (numCardsRevealed == 2) {
+					enterNoActionMode();
 				}
 			}
-			else {
+			else
+			{
 				throw new Error("invalid state");
 			}
-		});
+		};
 	}
 	else
 	{
@@ -532,11 +571,61 @@ void beginFlipChoices()
 	}
 }
 
+void beginOurTurn()
+{
+	currentMode = UIMode.MY_TURN_ACTION;
+
+	ClickablePlayerGrid grid = localPlayer.getGrid;
+	grid.onClick = (row, col) {
+		if (grid.getCards[row][col].revealed) {
+			return;
+		}
+		enterNoActionMode();
+		connection.send(ClientMessageType.FLIP, row, col);
+	};
+
+	drawPile.enabled = true;
+	drawPile.onClick = {
+		enterNoActionMode();
+		connection.send(ClientMessageType.DRAW);
+	};
+
+	discardPile.enabled = true;
+	discardPile.onClick = {
+		enterNoActionMode();   // reset everything first
+		currentMode = UIMode.SWAP_CARD_ACTION;
+		grid.onClick = (row, col) {
+			enterNoActionMode();
+			connection.send(ClientMessageType.SWAP, row, col);
+		};
+	};
+}
+
 void revealCard(int playerNumber, int row, int col, CardRank rank)
 {
 	Card c = new Card(rank);
 	c.revealed = true;
 	model.getPlayer(cast(ubyte) playerNumber)[row, col] = c;
+}
+
+void flipOverFirstDiscardCard(CardRank rank)
+{
+	Card c = new Card(rank);
+	c.revealed = true;
+
+	if (currentMode != UIMode.NO_ACTION) {
+		model.pushToDiscard(c);
+		return;
+	}
+
+	moveAnim = MoveAnimation(unknown_card, card_large_width, card_large_height,
+	                         draw_pile_position, discard_pile_position, 500.msecs);
+
+	moveAnim.onFinished = {
+		model.pushToDiscard(c);
+		moveAnim = MoveAnimation.init;
+		dealSound.play();
+	};
 }
 
 void assignOpponentPositions()
@@ -637,7 +726,64 @@ final class OpponentGrid
 		if (player !is null) {
 			player.getGrid().render(renderer);
 		}
+
+		auto playerTurn = model.playerWhoseTurnItIs();
+
+		if (playerTurn.isNotNull && player is playerTurn.get) {
+			nameLabel.setColor(SDL_Color(0, 0, 255, 255));
+		}
+		else {
+			nameLabel.setColor(SDL_Color(0, 0, 0, 255));
+		}
 		nameLabel.draw(renderer);
+	}
+}
+
+abstract class ClickableCardPile : Clickable
+{
+	Point position;
+
+	this(Point position)
+	{
+		this.setRectangle(Rectangle(position.x, position.y, card_large_width, card_large_height));
+	}
+
+	final void render(ref Renderer renderer)
+	{
+		getShownCard().ifPresent!( c => c.draw(
+			renderer, position, card_large_width, card_large_height, shouldBeHighlighted()) );
+	}
+
+	mixin MouseUpActivation;
+
+	abstract Nullable!(const Card) getShownCard();
+}
+
+final class DiscardPile : ClickableCardPile
+{
+	this(Point position)
+	{
+		super(position);
+		this.position = position;
+	}
+
+	override Nullable!(const Card) getShownCard()
+	{
+		return model.getDiscardTopCard();
+	}
+}
+
+final class DrawPile : ClickableCardPile
+{
+	this(Point position)
+	{
+		super(position);
+		this.position = position;
+	}
+
+	override Nullable!(const Card) getShownCard() const
+	{
+		return nullable(cast(const(Card)) unknown_card);
 	}
 }
 

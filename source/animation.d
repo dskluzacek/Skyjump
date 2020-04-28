@@ -16,18 +16,18 @@ struct MoveAnimation
 {
     private
     {
-        const(Card) card;
+        Card card;
         int width;
         int height;
         Point start;
         Point end;
         MonoTime startTime;
         Duration duration;
-        void delegate() onFinished;
+        void delegate() _onFinished;
         bool onFinishedCalled = false;
     }
 
-    this(in Card card, int width, int height, Point start, Point end, Duration duration) nothrow
+    this(Card card, int width, int height, Point start, Point end, Duration duration) nothrow
     {
         this.card = card;
         this.width = width;
@@ -39,14 +39,18 @@ struct MoveAnimation
         startTime = MonoTime.currTime();
     }
 
-    bool isFinished()
+    bool process()
     {
+        if (card is null) {
+            return true;
+        }
+
         Duration elapsed = MonoTime.currTime() - startTime;
 
         if (elapsed.total!"msecs" >= duration.total!"msecs")
         {
-            if (onFinished && !onFinishedCalled) {
-                onFinished();
+            if (_onFinished && !onFinishedCalled) {
+                _onFinished();
                 onFinishedCalled = true;
             }
             return true;
@@ -57,8 +61,23 @@ struct MoveAnimation
         }
     }
 
+    bool isFinished()
+    {
+        Duration elapsed = MonoTime.currTime() - startTime;
+        return elapsed.total!"msecs" >= duration.total!"msecs";
+    }
+
+    void onFinished(void delegate() @safe fn) @property
+    {
+        this._onFinished = fn;
+    }
+
     void render(ref Renderer renderer)
     {
+        if (card is null) {
+            return;
+        }
+
         Duration elapsed = MonoTime.currTime() - startTime;
         float fraction = elapsed.total!"msecs" / (cast(float) duration.total!"msecs");
 
@@ -85,7 +104,7 @@ final class DealAnimation
         int cardCount = 1;
     }
 
-    this(Point start, AbstractClientGrid[] grids, Duration timePerCard, in Card card, Sound sound)
+    this(Point start, AbstractClientGrid[] grids, Duration timePerCard, Card card, Sound sound)
     {
         animation = MoveAnimation(card,
                                   card_large_width,
@@ -97,13 +116,13 @@ final class DealAnimation
         this.sound = sound;
     }
 
-    bool isFinished()
+    bool process()
     {
         if (cardCount >= 13) {
             return true;
         }
 
-        if (animation.isFinished)
+        if ( animation.process() )
         {
             sound.play();
             grids[gridIndex].add(new Card(CardRank.UNKNOWN));

@@ -37,6 +37,67 @@ interface Clickable
 
 mixin template MouseUpActivation()
 {
+	private
+	{
+		Rectangle box;
+		Point lastMousePosition;
+		void delegate() @safe clickHandler;
+		bool isEnabled;
+		bool beingClicked;
+		bool mouseDown;
+	}
+
+@safe:
+
+	void onClick(void delegate() @safe fn) @property pure nothrow @nogc
+	{
+		this.clickHandler = fn;
+	}
+
+	void enabled(bool value) @property pure nothrow @nogc
+	{
+		isEnabled = value;
+	}
+
+	void setRectangle(Rectangle box) pure nothrow @nogc
+	{
+		this.box = box;
+	}
+
+	void mouseMoved(Point position) pure nothrow @nogc
+	{
+		this.lastMousePosition = position;
+	}
+
+	void mouseButtonDown(Point position) pure nothrow @nogc
+	{
+		if (isEnabled == false) {
+			return;
+		}
+
+		if ( box.containsPoint(position) ) {
+			beingClicked = true;
+		}
+
+		mouseDown = true;
+	}
+
+	void mouseButtonUp(Point position)
+	{
+		if ( isEnabled && mouseDown && beingClicked && box.containsPoint(position) )
+		{
+			clickHandler();
+		}
+
+		mouseDown = false;
+		beingClicked = false;
+	}
+
+	bool shouldBeHighlighted() const pure nothrow @nogc
+	{
+		return isEnabled
+			&& ((mouseDown && beingClicked) || (!mouseDown && box.containsPoint(lastMousePosition)));
+	}
 }
 
 mixin template RemovalFlag()
