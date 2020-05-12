@@ -149,6 +149,7 @@ abstract class AbstractClientGrid : PlayerGrid
     }
 
     abstract Point getCardDestination();
+    abstract Point getCardDestination(int row, int col);
     abstract void render(ref Renderer r);
 }
 
@@ -174,18 +175,23 @@ class ClientPlayerGrid
         return position.offset(x, y);
     }
 
+    override Point getCardDestination(int r, int c) const pure nothrow @nogc
+    {
+        return getCardDestination();
+    }
+
     override final void render(ref Renderer renderer)
     {
         foreach (row; 0 .. 3)
         {
             foreach (col; 0 .. 4)
             {
-                drawCard(cards[row][col], false, row, col, renderer);
+                drawCard(cards[row][col], Card.Highlight.OFF, row, col, renderer);
             }
         }
     }
 
-    void drawCard(Card c, bool highlight, int row, int col, ref Renderer renderer)
+    void drawCard(Card c, Card.Highlight highlight, int row, int col, ref Renderer renderer)
     {
         if (c is null) {
             return;
@@ -207,8 +213,6 @@ final class ClickablePlayerGrid :
         Point lastMousePosition;
         bool mouseDown;
     }
-
-
 
     this(Point position) pure nothrow
     {
@@ -283,16 +287,32 @@ final class ClickablePlayerGrid :
         return Point.init;
     }
 
-    override void drawCard(Card c, bool highlight, int row, int col, ref Renderer renderer)
+    override Point getCardDestination(int row, int col) const pure nothrow @nogc
     {
-        bool shouldHighlight = false;
+        assert(row >= 0);
+        assert(row < 3);
+        assert(col >= 0);
+        assert(col < 4);
 
-        if (mode == GridHighlightMode.SELECTION)
+        return position.offset(large_col_coord[col], large_row_coord[row]);
+    }
+
+    override void drawCard(Card c, Card.Highlight highlight, int row, int col, ref Renderer renderer)
+    {
+        if (c is null) {
+            return;
+        }
+
+        auto shouldHighlight = Card.Highlight.OFF;
+
+        if ( (mouseDown && cardBeingClicked.isNotNull && cardBeingClicked.get is c)
+            || (!mouseDown && getBox(row, col).containsPoint(lastMousePosition)) )
         {
-            if ( ! c.revealed && ((mouseDown && cardBeingClicked.isNotNull && cardBeingClicked.get is c)
-                || (!mouseDown && getBox(row, col).containsPoint(lastMousePosition))) )
-            {
-                shouldHighlight = true;
+            if (mode == GridHighlightMode.SELECTION && ! c.revealed) {
+                shouldHighlight = Card.Highlight.HOVER;
+            }
+            else if (mode == GridHighlightMode.PLACEMENT) {
+                shouldHighlight = Card.Highlight.PLACE;
             }
         }
 

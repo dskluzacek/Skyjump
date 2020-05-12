@@ -23,8 +23,8 @@ struct MoveAnimation
         Point end;
         MonoTime startTime;
         Duration duration;
-        void delegate() _onFinished;
-        bool onFinishedCalled = false;
+        public void delegate() _onFinished;
+        bool onFinishedCalled;
     }
 
     this(Card card, int width, int height, Point start, Point end, Duration duration) nothrow
@@ -35,6 +35,7 @@ struct MoveAnimation
         this.start = start;
         this.end = end;
         this.duration = duration;
+        this.onFinishedCalled = false;
 
         startTime = MonoTime.currTime();
     }
@@ -50,8 +51,8 @@ struct MoveAnimation
         if (elapsed.total!"msecs" >= duration.total!"msecs")
         {
             if (_onFinished && !onFinishedCalled) {
-                _onFinished();
                 onFinishedCalled = true;
+                _onFinished();
             }
             return true;
         }

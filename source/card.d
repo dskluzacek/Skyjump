@@ -14,6 +14,7 @@ import sdl2.renderer;
 
 enum highlight_yellow = tuple(255, 255, 165);
 enum pale_indigo = tuple(162, 165, 198);
+enum magenta = tuple(200, 0, 200);
 
 enum CardRank : byte
 {
@@ -80,7 +81,8 @@ final class Card
         }
     }
 
-    void draw(ref Renderer renderer, Point position, int width, int height, bool highlight = false) const
+    void draw(ref Renderer renderer,
+        Point position, int width, int height, Highlight highlight = Highlight.OFF) const
     {
         Texture texture;
 
@@ -91,14 +93,23 @@ final class Card
             texture = cardTextures[CardRank.UNKNOWN];
         }
 
-        if (highlight) {
+        if (highlight == Highlight.HOVER || highlight == Highlight.HAS_FOCUS) {
             texture.setColorMod(pale_indigo[]);
         }
         renderer.renderCopy(texture, position.x, position.y, width, height);
         texture.setColorMod(255, 255, 255);
 
-        if (highlight) {
-        //    drawBorder(renderer, width, height, position, 255, 0, 255);
+        if (highlight == Highlight.HAS_FOCUS) {
+            drawBorder(renderer, width, height, position, highlight_yellow[]);
+        }
+        else if (highlight == Highlight.HAS_FOCUS_MOUSE_MOVED) {
+            drawBorder(renderer, width, height, position, pale_indigo[]);
+        }
+        else if (highlight == Highlight.PLACE) {
+            drawBorder(renderer, width, height, position, magenta[]);
+        }
+        else if (highlight == Highlight.SELECTED_HOVER) {
+            drawBorder(renderer, width, height, position, 0, 0, 0);
         }
     }
 
@@ -106,7 +117,7 @@ final class Card
                             int width,
                             int height,
                             Point position,
-                            ubyte r, ubyte g, ubyte b)
+                            ubyte r, ubyte g, ubyte b) const
     {
         renderer.setDrawColor(r, g, b);
         renderer.fillRectangle(Rectangle(position.x-8, position.y-8, 8, height+16));
@@ -118,6 +129,16 @@ final class Card
     static setTexture(CardRank rank, Texture texture) nothrow
     {
         cardTextures[rank] = texture;
+    }
+
+    enum Highlight
+    {
+        OFF,
+        HOVER,
+        HAS_FOCUS,
+        HAS_FOCUS_MOUSE_MOVED,
+        PLACE,
+        SELECTED_HOVER
     }
 }
 
@@ -200,7 +221,7 @@ final class DiscardStack
 
     void push(Card c) pure
     {
-        enforce!Error(c !is null, "card was null");
+        enforce!Error(c !is null, "Illegal argument: card was null");
 
         c._revealed = true;
         cards ~= c;

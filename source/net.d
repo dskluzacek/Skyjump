@@ -600,7 +600,7 @@ private:
 
     this(ServerMessageType type, int playerNumber, string name) pure
     {
-        enforce!Error(name !is null, "name cannot be null");
+        enforce!Error(name !is null, "Illegal argument: name cannot be null");
 
         this.type = type;
         this.playerNumber = playerNumber;

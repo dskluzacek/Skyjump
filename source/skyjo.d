@@ -46,6 +46,10 @@ enum anim_duration = 285.msecs;
 
 Card unknown_card;
 
+static const foo = new Card(CardRank.UNKNOWN);
+
+pragma(msg, typeof(foo));
+
 static this()
 {
 	unknown_card = new Card(CardRank.UNKNOWN);
@@ -68,6 +72,7 @@ private
 	Font font;
 	Sound dealSound;
 	Sound flipSound;
+	Sound discardSound;
 	DrawPile drawPile;
 	DiscardPile discardPile;
 	MoveAnimation moveAnim;
@@ -222,6 +227,7 @@ void load(ref Renderer renderer)
 
 	dealSound = loadWAV("assets/playcard.wav");
 	flipSound = loadWAV("assets/cardPlace3.wav");
+	discardSound = loadWAV("assets/cardShove1.wav");
 }
 
 void masterLoop( ref Window window,
@@ -306,32 +312,20 @@ void mainLoop( ref Window window,
 
 		moveAnim.process();
 
-		render(window, renderer, localPlayer.getGrid);
+		render(window, renderer);
 	}
 }
 
-void render(ref Window window, ref Renderer renderer, ClickablePlayerGrid grid)
+void render(ref Window window, ref Renderer renderer)
 {
+	ClickablePlayerGrid grid = localPlayer.getGrid;
+
 	renderer.clear();
 	renderer.setLogicalSize(0, 0);
 	gameBackground.render(renderer, window);
 	renderer.setLogicalSize(1920, 1080);
 
-	immutable windowHasFocus = window.testFlag(SDL_WINDOW_INPUT_FOCUS);
-
-	if (windowHasFocus &&
-		(currentMode == UIMode.FLIP_ACTION || currentMode == UIMode.MY_TURN_ACTION))
-	{
-		grid.setHighlightingMode(GridHighlightMode.SELECTION);
-	}
-	else if (windowHasFocus &&
-		(currentMode == UIMode.SWAP_CARD_ACTION || currentMode == UIMode.DRAWN_CARD_ACTION))
-	{
-		grid.setHighlightingMode(GridHighlightMode.SELECTION); // PLACEMENT
-	}
-	else {
-		grid.setHighlightingMode(GridHighlightMode.OFF);
-	}
+	applyCurrentMode( window.testFlag(SDL_WINDOW_INPUT_FOCUS) );
 
 	grid.render(renderer);
 	opponentGrids.each!( opp => opp.render(renderer) );
@@ -346,6 +340,27 @@ void render(ref Window window, ref Renderer renderer, ClickablePlayerGrid grid)
 	}
 
 	renderer.present();
+}
+
+void applyCurrentMode(const bool windowHasFocus)
+{
+	ClickablePlayerGrid grid = localPlayer.getGrid;
+
+	if (windowHasFocus)
+	{
+		if (currentMode == UIMode.FLIP_ACTION || currentMode == UIMode.MY_TURN_ACTION) {
+			grid.setHighlightingMode(GridHighlightMode.SELECTION);
+		}
+		else if (currentMode == UIMode.SWAP_CARD_ACTION || currentMode == UIMode.DRAWN_CARD_ACTION) {
+			grid.setHighlightingMode(GridHighlightMode.PLACEMENT);
+		}
+		else {
+			grid.setHighlightingMode(GridHighlightMode.OFF);
+		}
+	}
+	else {
+		grid.setHighlightingMode(GridHighlightMode.OFF);
+	}
 }
 
 void sleepFor(Duration d) @trusted @nogc
@@ -440,6 +455,7 @@ void handleMessage(ServerMessage message)
 		revealCard(message.playerNumber, message.row, message.col, message.card1);
 		break;
 	case ServerMessageType.DISCARD_SWAP:
+		discardSwap(message.playerNumber, message.row, message.col, message.card1, message.card2);
 		break;
 	case ServerMessageType.COLUMN_REMOVAL:
 		break;
@@ -460,6 +476,7 @@ void handleMessage(ServerMessage message)
 	case ServerMessageType.WINNER:
 		break;
 	case ServerMessageType.YOUR_TURN:
+		model.setPlayerCurrentTurn(localPlayerNumber);
 		beginOurTurn();
 		break;
 	case ServerMessageType.CHOOSE_FLIP:
@@ -467,6 +484,7 @@ void handleMessage(ServerMessage message)
 		break;
 	case ServerMessageType.YOU_ARE:
 		localPlayerNumber = cast(ubyte) message.playerNumber;
+		assert(localPlayer !is null);
 		model.setPlayer(localPlayer, localPlayerNumber);
 		break;
 	case ServerMessageType.CARD:
@@ -575,7 +593,7 @@ void beginOurTurn()
 {
 	currentMode = UIMode.MY_TURN_ACTION;
 
-	ClickablePlayerGrid grid = localPlayer.getGrid;
+	ClickablePlayerGrid grid = localPlayer.getGrid();
 	grid.onClick = (row, col) {
 		if (grid.getCards[row][col].revealed) {
 			return;
@@ -594,6 +612,7 @@ void beginOurTurn()
 	discardPile.onClick = {
 		enterNoActionMode();   // reset everything first
 		currentMode = UIMode.SWAP_CARD_ACTION;
+		discardPile.enabled = true;   // to enable the 'not interactable' highlight
 		grid.onClick = (row, col) {
 			enterNoActionMode();
 			connection.send(ClientMessageType.SWAP, row, col);
@@ -625,6 +644,46 @@ void flipOverFirstDiscardCard(CardRank rank)
 		model.pushToDiscard(c);
 		moveAnim = MoveAnimation.init;
 		dealSound.play();
+	};
+}
+
+void discardSwap(int playerNumber, int row, int col, CardRank cardTaken, CardRank cardThrown)
+{
+	Nullable!Card popped = model.popDiscardTopCard();
+
+	if (popped.isNull || popped.get.rank != cardTaken) {
+		popped = new Card(cardTaken);
+		popped.get.revealed = true;
+	}
+
+	Player player =  model.getPlayer(cast(ubyte) playerNumber);
+	Point cardPos = (cast(AbstractClientGrid) player.getGrid).getCardDestination(row, col);
+
+	moveAnim = MoveAnimation(popped.get, card_large_width, card_large_height,
+	                         discard_pile_position, cardPos, 750.msecs);
+	moveAnim.onFinished = {
+		dealSound.play();
+		Card c;
+
+		if (player[row, col].isNotNull && player[row, col].get.revealed) {
+			c = player[row, col].get;
+		}
+		else {
+			c = new Card(cardThrown);
+			c.revealed = true;
+		}
+
+		moveAnim = MoveAnimation(c, card_large_width, card_large_height,
+			                     cardPos, discard_pile_position, 750.msecs);
+		auto fn = {
+			discardSound.play();
+			model.pushToDiscard(c);
+		};
+
+		moveAnim.onFinished = fn;
+		assert(moveAnim._onFinished is fn);
+
+		player[row, col] = popped.get;
 	};
 }
 
@@ -750,13 +809,15 @@ abstract class ClickableCardPile : Clickable
 
 	final void render(ref Renderer renderer)
 	{
-		getShownCard().ifPresent!( c => c.draw(
-			renderer, position, card_large_width, card_large_height, shouldBeHighlighted()) );
+		getShownCard().ifPresent!( c => c.draw(renderer, position, card_large_width, card_large_height,
+			shouldBeHighlighted() ? highlightMode() : unhoveredHighlightMode()) );
 	}
 
 	mixin MouseUpActivation;
 
 	abstract Nullable!(const Card) getShownCard();
+	abstract Card.Highlight highlightMode();
+	abstract Card.Highlight unhoveredHighlightMode();
 }
 
 final class DiscardPile : ClickableCardPile
@@ -771,6 +832,32 @@ final class DiscardPile : ClickableCardPile
 	{
 		return model.getDiscardTopCard();
 	}
+
+	override Card.Highlight highlightMode()
+	{
+		if (currentMode == UIMode.SWAP_CARD_ACTION) {
+			return Card.Highlight.SELECTED_HOVER;
+		}
+		else if (currentMode == UIMode.DRAWN_CARD_ACTION) {
+			return Card.Highlight.PLACE;
+		}
+		else if (currentMode == UIMode.MY_TURN_ACTION) {
+			return Card.Highlight.HOVER;
+		}
+		else {
+			return Card.Highlight.OFF;
+		}
+	}
+
+	override Card.Highlight unhoveredHighlightMode()
+	{
+		if (currentMode == UIMode.SWAP_CARD_ACTION) {
+			return Card.Highlight.PLACE;
+		}
+		else {
+			return Card.Highlight.OFF;
+		}
+	}
 }
 
 final class DrawPile : ClickableCardPile
@@ -784,6 +871,32 @@ final class DrawPile : ClickableCardPile
 	override Nullable!(const Card) getShownCard() const
 	{
 		return nullable(cast(const(Card)) unknown_card);
+	}
+
+	override Card.Highlight highlightMode()
+	{
+		if (currentMode == UIMode.MY_TURN_ACTION) {
+			return Card.Highlight.HOVER;
+		}
+		else {
+			return Card.Highlight.OFF;
+		}
+	}
+
+	override Card.Highlight unhoveredHighlightMode()
+	{
+		return Card.Highlight.OFF;
+	}
+}
+
+final class DrawnCard : ClickableCardPile
+{
+	Card drawnCard;
+
+	this(Point position)
+	{
+		super(position);
+		this.position = position;
 	}
 }
 

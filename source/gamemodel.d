@@ -84,6 +84,11 @@ struct GameModel
         return discardPile.topCard();
     }
 
+    Nullable!(Card) popDiscardTopCard() pure nothrow
+    {
+        return discardPile.pop();
+    }
+
     ubyte addPlayer(Player p) pure nothrow
     {
         foreach (ubyte n; 0 .. 256)
@@ -105,6 +110,7 @@ struct GameModel
         }
         else {
             players[number] = p;
+            assert(players[number] !is null);
         }
     }
 
@@ -112,6 +118,10 @@ struct GameModel
     {
         enforce!Error(number in players, "a player with that number doesn't exist");
 
+        import std.stdio;
+        debug writeln(number);
+        assert(players[number] !is null);
+        assert(is(typeof(players[number]) : Player));
         return players[number];
     }
 
@@ -308,7 +318,7 @@ struct ServerGameModel
             (cast(ServerPlayer) p).setGrid( new PlayerGrid() );
         }
 
-        enforce!Error(deck.size > numberOfPlayers() * 12, "deck doesn't have enough cards");
+        assert(deck.size > numberOfPlayers() * 12);
 
         foreach (n; 0 .. 12)
         {
@@ -340,9 +350,10 @@ struct ServerGameModel
             assert(currentState == GameState.FLIP_CHOICE);
 
             currentState = GameState.PLAYER_TURN;
-
             Nullable!Card flip = deck.randomCard();
-            enforce!Error(flip.isNotNull, "randomCard() returned null Nullable!Card");
+
+            assert(flip.isNotNull);
+
             discardPile.push(flip.get);
             observers.each!( obs => obs.discardFlippedOver(flip.get.rank) );
         }
@@ -418,6 +429,7 @@ struct ServerGameModel
         discarding.revealed = true;
         scope (exit) {
             checkColumnEquality(col);
+            beginTurn();
         }
 
         foreach (obs; observers) {
@@ -435,6 +447,7 @@ struct ServerGameModel
         card.revealed = true;
         scope (exit) {
             checkColumnEquality(col);
+            beginTurn();
         }
 
         observers.each!( obs => obs.revealed(playerCurrentTurn, row, col, card.rank) );
@@ -468,7 +481,7 @@ struct ServerGameModel
                 if (currentState != GameState.NOT_STARTED && currentState != GameState.END_GAME
                     && currentState != GameState.BETWEEN_HANDS)
                 {
-                    enforce!Error(p.hasGrid, "expected Player to have a PlayerGrid");
+                    assert(p.hasGrid);
 
                     discardPile.bury( p.getGrid().getCardsAsRange() );
                     p.getGrid().clear();
@@ -585,9 +598,9 @@ struct ServerGameModel
     {
         Player p = players[playerCurrentTurn];
 
-        enforce!Error(p[0, col].isNotNull);
-        enforce!Error(p[1, col].isNotNull);
-        enforce!Error(p[2, col].isNotNull);
+        assert(p[0, col].isNotNull);
+        assert(p[1, col].isNotNull);
+        assert(p[2, col].isNotNull);
 
         Card x = p[0, col].get;
         Card y = p[1, col].get;
