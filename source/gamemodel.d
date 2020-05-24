@@ -60,17 +60,17 @@ struct GameModel
         GameModel model;
         model.playerCurrentTurn = 255;
 
-        model.addPlayer(new ClientPlayer());
-        model.setPlayer(new ClientPlayer(), 2);
-        model.setPlayer(new ClientPlayer(), 5);
+        model.setPlayer(new PlayerImpl!PlayerGrid(), 0);
+        model.setPlayer(new PlayerImpl!PlayerGrid(), 2);
+        model.setPlayer(new PlayerImpl!PlayerGrid(), 5);
 
-        model.nextPlayerTurn();
+        model.playerCurrentTurn = model.getNextPlayerAfter(model.playerCurrentTurn);
         assert(model.playerCurrentTurn == 0);
-        model.nextPlayerTurn();
+        model.playerCurrentTurn = model.getNextPlayerAfter(model.playerCurrentTurn);
         assert(model.playerCurrentTurn == 2);
-        model.nextPlayerTurn();
+        model.playerCurrentTurn = model.getNextPlayerAfter(model.playerCurrentTurn);
         assert(model.playerCurrentTurn == 5);
-        model.nextPlayerTurn();
+        model.playerCurrentTurn = model.getNextPlayerAfter(model.playerCurrentTurn);
         assert(model.playerCurrentTurn == 0);
     }
 
@@ -117,11 +117,8 @@ struct GameModel
     Player getPlayer(ubyte number) pure
     {
         enforce!Error(number in players, "a player with that number doesn't exist");
-
-        import std.stdio;
-        debug writeln(number);
         assert(players[number] !is null);
-        assert(is(typeof(players[number]) : Player));
+
         return players[number];
     }
 
@@ -161,11 +158,11 @@ struct GameModel
 
         assert(model.maxPlayerKey() == -1);
 
-        model.addPlayer(new ClientPlayer());
+        model.addPlayer(new PlayerImpl!PlayerGrid());
         assert(model.maxPlayerKey() == 0);
-        model.setPlayer(new ClientPlayer(), 3);
+        model.setPlayer(new PlayerImpl!PlayerGrid(), 3);
         assert(model.maxPlayerKey() == 3);
-        model.setPlayer(new ClientPlayer(), 255);
+        model.setPlayer(new PlayerImpl!PlayerGrid(), 255);
         assert(model.maxPlayerKey() == 255);
     }
 
@@ -228,7 +225,10 @@ struct ServerGameModel
 
         ubyte n = baseModel.addPlayer(p);
         observers.each!( obs => obs.playerJoined(n, p.getName()) );
-        observers ~= o;
+
+        if (o !is null) {
+            observers ~= o;
+        }
 
         return n;
     }
@@ -395,6 +395,7 @@ struct ServerGameModel
         scope (exit) {
             drawnCard = null;
             checkColumnEquality(col);
+            beginTurn();
         }
 
         foreach (obs; observers) {
@@ -411,6 +412,7 @@ struct ServerGameModel
         drawnCard.revealed = true;
         scope (exit) {
             drawnCard = null;
+            beginTurn();
         }
 
         forEachOtherObserver!( obs => obs.drawpileReject(playerCurrentTurn, drawnCard.rank) );

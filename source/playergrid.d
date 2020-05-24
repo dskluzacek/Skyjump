@@ -148,8 +148,9 @@ abstract class AbstractClientGrid : PlayerGrid
         return position;
     }
 
-    abstract Point getCardDestination();
-    abstract Point getCardDestination(int row, int col);
+    abstract Rectangle getCardDestination();
+    abstract Rectangle getCardDestination(int row, int col);
+    abstract Rectangle getDrawnCardDestination();
     abstract void render(ref Renderer r);
 }
 
@@ -167,17 +168,41 @@ class ClientPlayerGrid
         super();
     }
 
-    override Point getCardDestination() const pure nothrow @nogc
+    override Rectangle getCardDestination() const pure nothrow
+    {
+        foreach (row; 0 .. 3)
+        {
+            foreach (col; 0 .. 4)
+            {
+                if (cards[row][col] is null)
+                {
+                    Point p = position.offset(c_coord[col], r_coord[row]);
+                    return Rectangle(p.x, p.y, card_w, card_h);
+                }
+            }
+        }
+
+        assert(0);
+    }
+
+    override Rectangle getCardDestination(int row, int col) const pure nothrow
+    {
+        assert(row >= 0);
+        assert(row < 3);
+        assert(col >= 0);
+        assert(col < 4);
+
+        Point p = position.offset(c_coord[col], r_coord[row]);
+        return Rectangle(p.x, p.y, card_w, card_h);
+    }
+
+    override Rectangle getDrawnCardDestination() const pure nothrow @nogc
     {
         enum int x = (c_coord[1] + card_w + c_coord[2]) / 2 - (card_large_width / 2);
         enum int y = r_coord[1] + (card_h / 2) - (card_large_height / 2);
 
-        return position.offset(x, y);
-    }
-
-    override Point getCardDestination(int r, int c) const pure nothrow @nogc
-    {
-        return getCardDestination();
+        Point p = position.offset(x, y);
+        return Rectangle(p.x, p.y, card_large_width, card_large_height);
     }
 
     override final void render(ref Renderer renderer)
@@ -269,32 +294,6 @@ final class ClickablePlayerGrid :
     void onClick(void delegate(int, int) @safe handler) @property pure nothrow @nogc
     {
         this.clickHandler = handler;
-    }
-
-    override Point getCardDestination() const pure nothrow @nogc
-    {
-        foreach (row; 0 .. 3)
-        {
-            foreach (col; 0 .. 4)
-            {
-                if (cards[row][col] is null)
-                {
-                    return position.offset(large_col_coord[col], large_row_coord[row]);
-                }
-            }
-        }
-
-        return Point.init;
-    }
-
-    override Point getCardDestination(int row, int col) const pure nothrow @nogc
-    {
-        assert(row >= 0);
-        assert(row < 3);
-        assert(col >= 0);
-        assert(col < 4);
-
-        return position.offset(large_col_coord[col], large_row_coord[row]);
     }
 
     override void drawCard(Card c, Card.Highlight highlight, int row, int col, ref Renderer renderer)

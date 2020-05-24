@@ -17,21 +17,17 @@ struct MoveAnimation
     private
     {
         Card card;
-        int width;
-        int height;
-        Point start;
-        Point end;
+        Rectangle start;
+        Rectangle end;
         MonoTime startTime;
         Duration duration;
         public void delegate() _onFinished;
         bool onFinishedCalled;
     }
 
-    this(Card card, int width, int height, Point start, Point end, Duration duration) nothrow
+    this(Card card, Rectangle start, Rectangle end, Duration duration) nothrow
     {
         this.card = card;
-        this.width = width;
-        this.height = height;
         this.start = start;
         this.end = end;
         this.duration = duration;
@@ -87,10 +83,18 @@ struct MoveAnimation
             return;
         }
 
-        int x = cast(int) lerp(start.x, end.x, fraction);
-        int y = cast(int) lerp(start.y, end.y, fraction);
+        Point startCenter = Point(start.x + start.w / 2, start.y + start.h / 2);
+        Point endCenter = Point(end.x + end.w / 2, end.y + end.h / 2);
 
-        card.draw(renderer, Point(x, y), width, height);
+        Point center = lerp(startCenter, endCenter, fraction);
+
+        float width = start.w == end.w ? end.w : lerp(start.w, end.w, fraction);
+        float height = start.h == end.h ? end.h : lerp(start.h, end.h, fraction);
+
+        int x = cast(int) (center.x - width / 2.0f);
+        int y = cast(int) (center.y - height / 2.0f);
+
+        card.draw(renderer, Point(x, y), cast(int) width, cast(int) height);
     }
 }
 
@@ -108,9 +112,7 @@ final class DealAnimation
     this(Point start, AbstractClientGrid[] grids, Duration timePerCard, Card card, Sound sound)
     {
         animation = MoveAnimation(card,
-                                  card_large_width,
-                                  card_large_height,
-                                  start,
+                                  Rectangle(start.x, start.y , card_large_width, card_large_height),
                                   grids[0].getCardDestination(),
                                   timePerCard);
         this.grids = grids;

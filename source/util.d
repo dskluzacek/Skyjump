@@ -28,6 +28,11 @@ pure Point offset(Point a, int x, int y) @safe @nogc nothrow
 	return Point(a.x + x, a.y + y);
 }
 
+pure Point lerp(Point a, Point b, float t) @safe @nogc nothrow
+{
+	return Point(cast(int) lerp(a.x, b.x, t), cast(int) lerp(a.y, b.y, t));
+}
+
 interface Clickable
 {
 	void mouseMoved(Point p);

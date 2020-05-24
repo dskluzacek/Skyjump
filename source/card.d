@@ -81,6 +81,11 @@ final class Card
         }
     }
 
+    void draw(ref Renderer rndr, Rectangle rect, Highlight highlight = Highlight.OFF) const
+    {
+        draw(rndr, Point(rect.x, rect.y), rect.w, rect.h, highlight);
+    }
+
     void draw(ref Renderer renderer,
         Point position, int width, int height, Highlight highlight = Highlight.OFF) const
     {

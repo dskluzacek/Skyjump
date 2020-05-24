@@ -8,7 +8,6 @@ import card : Card;
 import std.exception : enforce;
 
 alias LocalPlayer  = PlayerImpl!ClickablePlayerGrid;
-alias ClientPlayer = PlayerImpl!AbstractClientGrid;
 
 interface Player
 {

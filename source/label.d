@@ -147,6 +147,11 @@ final class Label
         setPosition(x, y, hMode, vMode);
     }
 
+    Point getPosition()
+    {
+        return position;
+    }
+
     void setRenderer(Renderer* renderer) pure
     {
         enforce!Error(renderer !is null, "renderer cannot be null");
