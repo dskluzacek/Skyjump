@@ -1,8 +1,8 @@
 module gamemodel;
 @safe:
 
-import std.typecons : Nullable, nullable;
-import std.algorithm : each, remove, count, all;
+import std.typecons;
+import std.algorithm : map, each, remove, count, all, sum, minElement;
 import std.exception : enforce;
 import std.conv : to;
 
@@ -114,6 +114,8 @@ struct GameModel
         }
     }
 
+    alias opIndex = getPlayer;
+
     Player getPlayer(ubyte number) pure
     {
         enforce!Error(number in players, "a player with that number doesn't exist");
@@ -137,33 +139,6 @@ struct GameModel
         }
 
         return -1;
-    }
-
-    int maxPlayerKey() pure nothrow
-    {
-        foreach_reverse (ubyte n; 0 .. 256)
-        {
-            if (n in players)
-            {
-                return n;
-            }
-        }
-
-        return -1;
-    }
-
-    unittest
-    {
-        GameModel model;
-
-        assert(model.maxPlayerKey() == -1);
-
-        model.addPlayer(new PlayerImpl!PlayerGrid());
-        assert(model.maxPlayerKey() == 0);
-        model.setPlayer(new PlayerImpl!PlayerGrid(), 3);
-        assert(model.maxPlayerKey() == 3);
-        model.setPlayer(new PlayerImpl!PlayerGrid(), 255);
-        assert(model.maxPlayerKey() == 255);
     }
 
     auto playerKeys() pure nothrow
@@ -364,6 +339,28 @@ struct ServerGameModel
         assert(currentState == GameState.PLAYER_TURN);
         assert(drawnCard is null);
 
+        if (playerOut.isNotNull && playerCurrentTurn == playerOut.get)
+        {
+            // end the hand
+
+            foreach (key, player; players) {
+                player.getGrid.getCardsAsRange.each!( card => card.revealed = true );
+
+                if (key != playerOut.get) {
+                    observers.each!( obs => obs.updateCards(key, player.getGrid) );
+                }
+
+                foreach (col; 0 .. 4) {
+                    checkColumnEquality(col, player);
+                }
+            }
+
+            calculateScores();
+            observers.each!( obs => obs.currentScores(this) );
+            return;
+        }
+
+        currentState = GameState.BETWEEN_HANDS;
         forEachOtherObserver!( obs => obs.changeTurn(playerCurrentTurn) );
         (cast(ServerPlayer) players[playerCurrentTurn]).observer().yourTurn();
     }
@@ -394,7 +391,8 @@ struct ServerGameModel
         drawnCard.revealed = true;
         scope (exit) {
             drawnCard = null;
-            checkColumnEquality(col);
+            checkColumnEquality(col, players[playerCurrentTurn]);
+            checkIsPlayerOut();
             beginTurn();
         }
 
@@ -430,7 +428,8 @@ struct ServerGameModel
         discardPile.push(discarding);
         discarding.revealed = true;
         scope (exit) {
-            checkColumnEquality(col);
+            checkColumnEquality(col, players[playerCurrentTurn]);
+            checkIsPlayerOut();
             beginTurn();
         }
 
@@ -448,7 +447,8 @@ struct ServerGameModel
         Card card = players[playerCurrentTurn][row, col].get;
         card.revealed = true;
         scope (exit) {
-            checkColumnEquality(col);
+            checkColumnEquality(col, players[playerCurrentTurn]);
+            checkIsPlayerOut();
             beginTurn();
         }
 
@@ -491,6 +491,13 @@ struct ServerGameModel
 
                 if (currentState == GameState.PLAYER_TURN && keyValue.key == playerCurrentTurn)
                 {
+                    if (drawnCard !is null) {
+                        Card c = drawnCard;
+                        drawnCard = null;
+                        discardPile.push(c);
+                        observers.each!( obs => obs.discardFlippedOver(c.rank) );
+                    }
+
                     beginTurn();
                 }
                 return;
@@ -526,9 +533,41 @@ struct ServerGameModel
         throw new Error("no such player in GameModel");
     }
 
-    void allPlayersReconnected() pure nothrow
+    void allPlayersReconnected()
     {
-        // TODO
+        if (currentState == GameState.PLAYER_TURN)
+        {
+            if (drawnCard is null) {
+                (cast(ServerPlayer) players[playerCurrentTurn]).observer().yourTurn();
+            }
+            else {
+                (cast(ServerPlayer) players[playerCurrentTurn]).observer().resumeDraw();
+            }
+
+            forEachOtherObserver!( obs => obs.changeTurn(playerCurrentTurn) );
+        }
+        else if (currentState == GameState.FLIP_CHOICE)
+        {
+            observers.each!( obs => obs.chooseFlip() );
+        }
+    }
+
+    void calculateScores()
+    {
+        auto totals = players.byValue.map!(p => tuple(p, p.getGrid.getCardsAsRange.map!(c => c.value).sum));
+        auto minimum = totals.map!(a => a[1]).minElement;
+
+        foreach (t; totals)
+        {
+            if (t[0] is players[playerOut.get] && t[1] > minimum)
+            {
+                t[0].addScore(t[1] * 2);
+            }
+            else
+            {
+                t[0].addScore(t[1]);
+            }
+        }
     }
 
     void addObserver(Observer obs) pure nothrow
@@ -560,7 +599,9 @@ struct ServerGameModel
         void playerLeft(int playerNum);
         void waiting(int playerNum);
         void reconnected(int playerNum);
-        void currentScores(int[int] scores);
+        void resumeDraw();
+        void updateCards(int playerNum, PlayerGrid grid);
+        void currentScores(ref ServerGameModel players);
         void winner(int playerNum);
     }
 
@@ -596,9 +637,9 @@ struct ServerGameModel
         }
     }
 
-    private void checkColumnEquality(int col)
+    private void checkColumnEquality(int col, Player p)
     {
-        Player p = players[playerCurrentTurn];
+        //Player p = players[playerCurrentTurn];
 
         assert(p[0, col].isNotNull);
         assert(p[1, col].isNotNull);
@@ -621,6 +662,28 @@ struct ServerGameModel
 
             observers.each!( obs => obs.columnRemoved(playerCurrentTurn, col) );
         }
+    }
+
+    private void checkIsPlayerOut()
+    {
+        if (playerOut.isNotNull) {
+            return;
+        }
+
+        Player player = players[playerCurrentTurn];
+
+        foreach (row; 0 .. 3)
+        {
+            foreach (col; 0 .. 4)
+            {
+                if (player[row, col].isNotNull && ! player[row, col].get.revealed) {
+                    return;
+                }
+            }
+        }
+
+        playerOut = playerCurrentTurn;
+        observers.each!( obs => obs.lastTurn(playerCurrentTurn) );
     }
 
     private void forEachOtherObserver(alias fn)()

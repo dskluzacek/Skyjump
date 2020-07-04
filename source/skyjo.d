@@ -3,6 +3,7 @@ module skyjo;
 
 import std.stdio;
 import std.algorithm;
+import std.exception : enforce;
 import std.array;
 import std.typecons;
 import std.functional;
@@ -10,6 +11,7 @@ import std.datetime : Clock;
 import std.string : toStringz;
 import std.socket;
 import std.conv;
+import std.container : DList;
 import core.time;
 import core.thread;
 
@@ -32,6 +34,7 @@ import playergrid;
 import net;
 import util;
 import label;
+import button;
 
 enum window_title = "Skyjo";
 enum version_str  = "pre-alpha";
@@ -46,6 +49,8 @@ enum discard_pile_rect = Rectangle(discard_pile_position.x, discard_pile_positio
                                    card_large_width, card_large_height);
 enum drawn_card_rect = Rectangle(drawn_card_position.x, drawn_card_position.y,
                                  card_large_width, card_large_height);
+
+enum cancel_button_dims = Rectangle(1248, 215, 120, 40);
 
 enum total_audio_channels        = 8,
      num_reserved_audio_channels = 3;
@@ -69,7 +74,9 @@ private
 	GameModel model;
 	SocketSet socketSet;
 	ConnectionToServer connection;
-	Font font;
+	Font nameFont;
+	Font largeFont;
+	Font uiFont;
 	Texture disconnectedIcon;
 	Sound dealSound;
 	Sound flipSound;
@@ -82,14 +89,20 @@ private
 	DrawPile drawPile;
 	DiscardPile discardPile;
 	DrawnCard drawnCard;
+	Button cancelButton;
 	Card opponentDrawnCard;
 	Rectangle opponentDrawnCardRect;
 	MoveAnimation moveAnim;
 	DealAnimation dealAnim;
-	void delegate() pendingAction = {};
+	Label lastTurnLabel1;
+	Label lastTurnLabel2;
+	DList!(void delegate()) pendingActions;
+	MonoTime yourTurnSoundTimerStart;
+	MonoTime lastTurnSoundTimerStart;
 	Point lastMousePosition;
 	UIMode currentMode = UIMode.PRE_GAME;
 	LocalPlayer localPlayer;
+	PlayerLabel localPlayerLabel;
 	ubyte localPlayerNumber;
 	ubyte numCardsRevealed;
 	ubyte numberOfAnimations;
@@ -115,8 +128,12 @@ void main(string[] args) @system
 	try {
 		if (args.length >= 2) {
 			name = args[1];
+
+			if (name.length > MAX_NAME_LENGTH) {
+				name = name[0 .. MAX_NAME_LENGTH];
+			}
 		}
-		writeln;
+		writeln();
 
 		localPlayer = new LocalPlayer(name);
 		run();
@@ -157,6 +174,8 @@ bool initialize(out Window window, out Renderer renderer) @system
 		// enable OpenGL multisampling
 		SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, 1);
 		SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, 16);
+
+		SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "best");
 	}
 	catch (DerelictException e) {
 		logFatalException(e, "Failed to load the SDL2 shared library");
@@ -171,15 +190,13 @@ bool initialize(out Window window, out Renderer renderer) @system
 	try {
 		window = Window( window_title,
 		SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-		1600, 900,
+		1200, 675,
 		SDL_WINDOW_HIDDEN
 //		| SDL_WINDOW_MAXIMIZED
 		| SDL_WINDOW_RESIZABLE );
 
 		renderer = window.createRenderer( SDL_RENDERER_ACCELERATED
 		                                  | SDL_RENDERER_PRESENTVSYNC );
-
-		SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "best");
 
 		return true;
 	}
@@ -213,12 +230,32 @@ void load(ref Renderer renderer)
 {
 	localPlayer.setGrid( new ClickablePlayerGrid(Point(586, 320)) );
 
-	font = openFont("assets/DejaVuSerifCondensed-Bold.ttf", 72);
+	nameFont = openFont("assets/Metropolis-SemiBold.ttf", 74);
+	largeFont = openFont("assets/Metropolis-ExtraBold.ttf", 84);
+	uiFont = openFont("assets/Metropolis-ExtraBold.ttf", 48);
 
-	opponentGrids[0] = new OpponentGrid(Point(40, 580), NamePlacement.ABOVE, font, renderer);
-	opponentGrids[1] = new OpponentGrid(Point(40, 40), NamePlacement.BELOW, font, renderer);
-	opponentGrids[2] = new OpponentGrid(Point(1464, 40), NamePlacement.BELOW, font, renderer);
-	opponentGrids[3] = new OpponentGrid(Point(1464, 580), NamePlacement.ABOVE, font, renderer);
+	localPlayerLabel = new PlayerLabel(Point(1354, 1060), HorizontalPositionMode.LEFT,
+	                                   VerticalPositionMode.BOTTOM, nameFont, renderer);
+	localPlayerLabel.setPlayer(localPlayer);
+
+	cancelButton = new Button(cancel_button_dims.x, cancel_button_dims.y, cancel_button_dims.w, cancel_button_dims.h,
+	                          "Cancel", uiFont, renderer);
+	cancelButton.visible = false;
+
+	lastTurnLabel1 = new Label("Last", largeFont);
+	lastTurnLabel1.setPosition(960, 135, HorizontalPositionMode.CENTER, VerticalPositionMode.BOTTOM);
+	lastTurnLabel1.renderText(renderer);
+	lastTurnLabel1.setVisible(false);
+
+	lastTurnLabel2 = new Label("Turn!", largeFont);
+	lastTurnLabel2.setPosition(960, 135, HorizontalPositionMode.CENTER, VerticalPositionMode.TOP);
+	lastTurnLabel2.renderText(renderer);
+	lastTurnLabel2.setVisible(false);
+
+	opponentGrids[0] = new OpponentGrid(Point(40, 580), NamePlacement.ABOVE, nameFont, renderer);
+	opponentGrids[1] = new OpponentGrid(Point(40, 40), NamePlacement.BELOW, nameFont, renderer);
+	opponentGrids[2] = new OpponentGrid(Point(1464, 40), NamePlacement.BELOW, nameFont, renderer);
+	opponentGrids[3] = new OpponentGrid(Point(1464, 580), NamePlacement.ABOVE, nameFont, renderer);
 
 	gameBackground = new Background( renderer.loadTexture("assets/wood.png") );
 
@@ -239,7 +276,7 @@ void load(ref Renderer renderer)
 	Card.setTexture( CardRank.TEN, renderer.loadTexture("assets/10.png") );
 	Card.setTexture( CardRank.ELEVEN, renderer.loadTexture("assets/11.png") );
 	Card.setTexture( CardRank.TWELVE, renderer.loadTexture("assets/12.png") );
-	Card.setTexture( CardRank.UNKNOWN, renderer.loadTexture("assets/back.png") );
+	Card.setTexture( CardRank.UNKNOWN, renderer.loadTexture("assets/back-grad.png") );
 
 	dealSound = loadWAV("assets/playcard.wav");
 	flipSound = loadWAV("assets/cardPlace3.wav");
@@ -262,35 +299,10 @@ void masterLoop( ref Window window,
 
 	auto grid = localPlayer.getGrid();
 
-	addObserver!"mouseDown"((event) {
-		grid.mouseButtonDown(Point(event.x, event.y));
-	});
-	addObserver!"mouseUp"((event) {
-		grid.mouseButtonUp(Point(event.x, event.y));
-	});
-	addObserver!"mouseMotion"((event) {
-		grid.mouseMoved(Point(event.x, event.y));
-	});
-
-	addObserver!"mouseDown"((event) {
-		drawPile.mouseButtonDown(Point(event.x, event.y));
-	});
-	addObserver!"mouseUp"((event) {
-		drawPile.mouseButtonUp(Point(event.x, event.y));
-	});
-	addObserver!"mouseMotion"((event) {
-		drawPile.mouseMoved(Point(event.x, event.y));
-	});
-
-	addObserver!"mouseDown"((event) {
-		discardPile.mouseButtonDown(Point(event.x, event.y));
-	});
-	addObserver!"mouseUp"((event) {
-		discardPile.mouseButtonUp(Point(event.x, event.y));
-	});
-	addObserver!"mouseMotion"((event) {
-		discardPile.mouseMoved(Point(event.x, event.y));
-	});
+	addClickable(grid);
+	addClickable(drawPile);
+	addClickable(discardPile);
+	addClickable(cancelButton);
 
 	addObserver!"mouseMotion"((event) {
 		drawnCard.mouseMoved(Point(event.x, event.y));
@@ -339,10 +351,28 @@ void mainLoop(ref Window window,
 				--numberOfAnimations;
 			}
 
-			if (numberOfAnimations == 0) {
-				pendingAction();
-				pendingAction = {};
+			while (numberOfAnimations == 0 && ! pendingActions.empty) {
+				( pendingActions.front() )();
+				pendingActions.removeFront();
 			}
+		}
+
+		if (lastTurnSoundTimerStart != MonoTime.init
+		    && MonoTime.currTime() - lastTurnSoundTimerStart > 1000.msecs)
+		{
+			lastTurnSound.play();
+			lastTurnSoundTimerStart = MonoTime.init;
+
+			if (yourTurnSoundTimerStart != MonoTime.init) {
+				yourTurnSoundTimerStart = MonoTime.currTime();
+			}
+		}
+
+		if (yourTurnSoundTimerStart != MonoTime.init
+		    && MonoTime.currTime() - yourTurnSoundTimerStart > 1000.msecs)
+		{
+			yourTurnSound.play();
+			yourTurnSoundTimerStart = MonoTime.init;
 		}
 
 		render(window, renderer);
@@ -351,8 +381,6 @@ void mainLoop(ref Window window,
 
 void render(ref Window window, ref Renderer renderer)
 {
-	ClickablePlayerGrid grid = localPlayer.getGrid;
-
 	renderer.clear();
 	renderer.setLogicalSize(0, 0);
 	gameBackground.render(renderer, window);
@@ -361,8 +389,15 @@ void render(ref Window window, ref Renderer renderer)
 	bool windowHasFocus = window.testFlag(SDL_WINDOW_INPUT_FOCUS);
 	applyCurrentMode(windowHasFocus);
 
+	ClickablePlayerGrid grid = localPlayer.getGrid;
 	grid.render(renderer);
 	opponentGrids.each!( opp => opp.render(renderer) );
+
+	localPlayerLabel.render(renderer);
+	lastTurnLabel1.draw(renderer);
+	lastTurnLabel2.draw(renderer);
+
+	cancelButton.draw(renderer);
 
 	drawPile.render(renderer, windowHasFocus);
 	discardPile.render(renderer, windowHasFocus);
@@ -475,6 +510,19 @@ mixin Observable!("mouseMotion", SDL_MouseMotionEvent);
 mixin Observable!("mouseDown", SDL_MouseButtonEvent);
 mixin Observable!("mouseUp", SDL_MouseButtonEvent);
 
+void addClickable(Clickable c)
+{
+	addObserver!"mouseDown"((SDL_MouseButtonEvent event) {
+		c.mouseButtonDown(Point(event.x, event.y));
+	});
+	addObserver!"mouseUp"((SDL_MouseButtonEvent event) {
+		c.mouseButtonUp(Point(event.x, event.y));
+	});
+	addObserver!"mouseMotion"((SDL_MouseMotionEvent event) {
+		c.mouseMoved(Point(event.x, event.y));
+	});
+}
+
 void handleMessage(ServerMessage message)
 {
 	final switch (message.type)
@@ -494,16 +542,18 @@ void handleMessage(ServerMessage message)
 		opponentDrawsCard(message.playerNumber.to!ubyte);
 		break;
 	case ServerMessageType.DRAWPILE_PLACE:
-		if (message.playerNumber == localPlayerNumber) {
-			placeDrawnCard(localPlayer, message.row, message.col, message.card1, message.card2);
-		}
-		else {
-			placeDrawnCard(model.getPlayer(message.playerNumber.to!ubyte),
-			               message.row, message.col, message.card1, message.card2);
-		}
+		pendingActions.insertBack({
+			if (message.playerNumber == localPlayerNumber) {
+				placeDrawnCard(localPlayer, message.row, message.col, message.card1, message.card2);
+			}
+			else {
+				placeDrawnCard(model.getPlayer(message.playerNumber.to!ubyte),
+							   message.row, message.col, message.card1, message.card2);
+			}
+		});
 		break;
 	case ServerMessageType.DRAWPILE_REJECT:
-		opponentDiscardsDrawnCard(message.playerNumber.to!ubyte, message.card1);
+		pendingActions.insertBack(() => opponentDiscardsDrawnCard(message.playerNumber.to!ubyte, message.card1));
 		break;
 	case ServerMessageType.REVEAL:
 		revealCard(message.playerNumber, message.row, message.col, message.card1);
@@ -512,9 +562,12 @@ void handleMessage(ServerMessage message)
 		discardSwap(message.playerNumber, message.row, message.col, message.card1, message.card2);
 		break;
 	case ServerMessageType.COLUMN_REMOVAL:
-		pendingAction = () => removeColumn(message.playerNumber.to!ubyte, message.col);
+		pendingActions.insertBack(() => removeColumn(message.playerNumber.to!ubyte, message.col));
 		break;
 	case ServerMessageType.LAST_TURN:
+		lastTurnLabel1.setVisible(true);
+		lastTurnLabel2.setVisible(true);
+		lastTurnSoundTimerStart = MonoTime.currTime();
 		break;
 	case ServerMessageType.PLAYER_JOIN:
 		playerJoined(message.playerNumber, message.name);
@@ -523,18 +576,30 @@ void handleMessage(ServerMessage message)
 		playerLeft(message.playerNumber);
 		break;
 	case ServerMessageType.WAITING:
-		playerDisconnected(message.playerNumber);
+		pendingActions.insertBack(() => playerDisconnected(message.playerNumber));
 		break;
 	case ServerMessageType.RECONNECTED:
 		playerReconnected(message.playerNumber);
 		break;
 	case ServerMessageType.CURRENT_SCORES:
+		lastTurnLabel1.setVisible(false);
+		lastTurnLabel2.setVisible(false);
+		updateScores(message.scores);
 		break;
 	case ServerMessageType.WINNER:
 		break;
 	case ServerMessageType.YOUR_TURN:
-		model.setPlayerCurrentTurn(localPlayerNumber);
-		beginOurTurn();
+		pendingActions.insertBack( asDelegate({
+			model.setPlayerCurrentTurn(localPlayerNumber);
+			beginOurTurn();
+		}) );
+		break;
+	case ServerMessageType.RESUME_DRAW:
+		pendingActions.insertBack( asDelegate({
+			enforce!ProtocolException(drawnCard.drawnCard !is null);
+			enterDrawnCardActionMode();
+			yourTurnSoundTimerStart = MonoTime.currTime();
+		}) );
 		break;
 	case ServerMessageType.CHOOSE_FLIP:
 		beginFlipChoices();
@@ -573,6 +638,8 @@ void enterNoActionMode(UIMode mode = UIMode.NO_ACTION)
 	discardPile.onClick = {};
 	drawnCard.enabled = false;
 	drawnCard.onClick = {};
+	cancelButton.enabled = false;
+	cancelButton.visible = false;
 }
 
 void playerJoined(int number, string name)
@@ -595,6 +662,7 @@ void playerLeft(int number)
 
 void playerDisconnected(int number)
 {
+	yourTurnSoundTimerStart = MonoTime.init;   // suppress "your turn" sound
 	enterNoActionMode(UIMode.WAITING);
 	(cast(ClientPlayer) model.getPlayer(number.to!ubyte)).disconnected = true;
 }
@@ -662,6 +730,12 @@ void beginFlipChoices()
 
 void beginOurTurn()
 {
+	yourTurnSoundTimerStart = MonoTime.currTime();
+	startTurn();
+}
+
+void startTurn()
+{
 	currentMode = UIMode.MY_TURN_ACTION;
 
 	ClickablePlayerGrid grid = localPlayer.getGrid();
@@ -688,6 +762,12 @@ void beginOurTurn()
 		grid.onClick = (row, col) {
 			enterNoActionMode();
 			connection.send(ClientMessageType.SWAP, row, col);
+		};
+		cancelButton.visible = true;
+		cancelButton.enabled = true;
+		cancelButton.onClick = {
+			enterNoActionMode();
+			startTurn();
 		};
 	};
 }
@@ -720,6 +800,7 @@ void flipOverFirstDiscardCard(CardRank rank)
 		moveAnim = MoveAnimation.init;
 		dealSound.play();
 	};
+	numberOfAnimations = 1;
 }
 
 void discardSwap(int playerNumber, int row, int col, CardRank cardTaken, CardRank cardThrown)
@@ -761,6 +842,24 @@ void discardSwap(int playerNumber, int row, int col, CardRank cardTaken, CardRan
 	numberOfAnimations = 2;
 }
 
+void enterDrawnCardActionMode()
+{
+	drawnCard.enabled = true;
+	discardPile.enabled = true;
+	currentMode = UIMode.DRAWN_CARD_ACTION;
+
+	localPlayer.getGrid.onClick = (int r, int c) {
+		enterNoActionMode();
+		connection.send(ClientMessageType.PLACE, r, c);
+	};
+
+	discardPile.onClick = {
+		enterNoActionMode();
+		connection.send(ClientMessageType.REJECT);
+		discardDrawnCard();
+	};
+}
+
 void showDrawnCard(CardRank rank)
 {
 	enterNoActionMode();
@@ -771,21 +870,9 @@ void showDrawnCard(CardRank rank)
 	moveAnim = MoveAnimation(c, draw_pile_rect, drawn_card_rect, anim_duration);
 	moveAnim.onFinished = {
 		drawnCard.drawnCard = c;
-		drawnCard.enabled = true;
-		discardPile.enabled = true;
-		currentMode = UIMode.DRAWN_CARD_ACTION;
-
-		localPlayer.getGrid.onClick = (int r, int c) {
-			enterNoActionMode();
-			connection.send(ClientMessageType.PLACE, r, c);
-		};
-
-		discardPile.onClick = {
-			enterNoActionMode();
-			connection.send(ClientMessageType.REJECT);
-			discardDrawnCard();
-		};
+		enterDrawnCardActionMode();
 	};
+	numberOfAnimations = 1;
 }
 
 void placeDrawnCard(T)(T player, int row, int col, CardRank takenRank, CardRank discardedRank)
@@ -856,6 +943,7 @@ void discardDrawnCard()
 		discardSound.play();
 		model.pushToDiscard(c);
 	};
+	numberOfAnimations = 1;
 }
 
 void opponentDiscardsDrawnCard(ubyte playerNumber, CardRank rank)
@@ -871,6 +959,7 @@ void opponentDiscardsDrawnCard(ubyte playerNumber, CardRank rank)
 		c.revealed = true;
 		model.pushToDiscard(c);
 	};
+	numberOfAnimations = 1;
 }
 
 void opponentDrawsCard(ubyte playerNumber)
@@ -885,6 +974,7 @@ void opponentDrawsCard(ubyte playerNumber)
 		opponentDrawnCard = unknown_card;
 		opponentDrawnCardRect = dest;
 	};
+	numberOfAnimations = 1;
 }
 
 void removeColumn(ubyte playerNumber, int columnIndex)
@@ -922,6 +1012,15 @@ void removeColumn(ubyte playerNumber, int columnIndex)
 			};
 		};
 	};
+	numberOfAnimations = 3;
+}
+
+void updateScores(int[ubyte] scores)
+{
+	foreach (key, value; scores)
+	{
+		model.getPlayer(key).setScore(value);
+	}
 }
 
 void assignOpponentPositions()
@@ -984,6 +1083,54 @@ final class ClientPlayer : PlayerImpl!AbstractClientGrid
 	}
 }
 
+final class PlayerLabel
+{
+	Player player;
+	Label nameLabel;
+
+	this(Point position, HorizontalPositionMode hMode,
+	     VerticalPositionMode vMode, Font font, ref Renderer renderer)
+	{
+		nameLabel = new Label("", font);
+		() @trusted { nameLabel.setRenderer(&renderer); } ();
+		nameLabel.autoReRender = true;
+		nameLabel.enableAutoPosition(position.x, position.y, hMode, vMode);
+	}
+
+	void setPlayer(Player player)
+	{
+		this.player = player;
+		nameLabel.setText(player.getName);
+	}
+
+	void clearPlayer()
+	{
+		this.player = null;
+		nameLabel.setText("");
+	}
+
+	void render(ref Renderer renderer, bool overrideColor = false)
+	{
+		if (player !is null && currentMode != UIMode.PRE_GAME) {
+			nameLabel.setText(player.getName ~ " (" ~ player.getScore.to!string ~ ')');
+		}
+		auto playerTurn = model.playerWhoseTurnItIs();
+
+		if (overrideColor) {
+			// do nothing
+		}
+		else if (playerTurn.isNotNull && player is playerTurn.get && currentMode != UIMode.PRE_GAME
+		         && currentMode != UIMode.DEALING && currentMode != UIMode.FLIP_ACTION)
+		{
+			nameLabel.setColor(SDL_Color(0, 0, 255, 255));           // blue
+		}
+		else {
+			nameLabel.setColor(SDL_Color(0, 0, 0, 255));             // black
+		}
+		nameLabel.draw(renderer);
+	}
+}
+
 final class OpponentGrid
 {
 	enum offset_x = 205,
@@ -994,7 +1141,7 @@ final class OpponentGrid
 	{
 		Point position;
 		ClientPlayer player;
-		Label nameLabel;
+		PlayerLabel playerLabel;
 		bool enabled;
 	}
 
@@ -1005,25 +1152,22 @@ final class OpponentGrid
 		Point labelPosition
 			= position.offset(offset_x, placement == NamePlacement.ABOVE ? offset_y_above : offset_y_below);
 
-		nameLabel = new Label("", font);
-		() @trusted { nameLabel.setRenderer(&renderer); } ();
-		nameLabel.autoReRender = true;
-		writeln("labelPosition= ", labelPosition.x, " ", labelPosition.y);
-		nameLabel.enableAutoPosition(labelPosition.x, labelPosition.y, HorizontalPositionMode.CENTER,
-			placement == NamePlacement.ABOVE ? VerticalPositionMode.BOTTOM : VerticalPositionMode.TOP);
+		playerLabel = new PlayerLabel(labelPosition, HorizontalPositionMode.CENTER,
+		    placement == NamePlacement.ABOVE ? VerticalPositionMode.BOTTOM : VerticalPositionMode.TOP,
+		    font, renderer);
 	}
 
 	void setPlayer(ClientPlayer player)
 	{
 		this.player = player;
-		nameLabel.setText(player.getName);
+		playerLabel.setPlayer(player);
 		player.getGrid().setPosition(position);
 	}
 
 	void clearPlayer()
 	{
 		this.player = null;
-		nameLabel.setText("");
+		playerLabel.clearPlayer();
 	}
 
 	void render(ref Renderer renderer)
@@ -1032,22 +1176,18 @@ final class OpponentGrid
 			player.getGrid().render(renderer);
 		}
 
-		auto playerTurn = model.playerWhoseTurnItIs();
+		bool overrideColor = false;
 
-		if (player !is null && player.disconnected) {
-			nameLabel.setColor(SDL_Color(255, 0, 0, 255));           // red
+		if (player !is null && player.disconnected)
+		{
+			playerLabel.nameLabel.setColor(SDL_Color(255, 0, 0, 255));     // red
+			overrideColor = true;
 
-			Point labelPos = nameLabel.getPosition();
+			Point labelPos = playerLabel.nameLabel.getPosition();
 			int x = labelPos.x - disconnectedIcon.width - 5;
 			renderer.renderCopy(disconnectedIcon, x, labelPos.y - 2);
 		}
-		else if (playerTurn.isNotNull && player is playerTurn.get) {
-			nameLabel.setColor(SDL_Color(0, 0, 255, 255));           // blue
-		}
-		else {
-			nameLabel.setColor(SDL_Color(0, 0, 0, 255));             // black
-		}
-		nameLabel.draw(renderer);
+		playerLabel.render(renderer, overrideColor);
 	}
 }
 

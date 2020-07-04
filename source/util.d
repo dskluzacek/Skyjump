@@ -3,7 +3,7 @@ module util;
 import std.algorithm : remove;
 import std.array : array;
 import std.traits;
-import std.typecons : Nullable;
+import std.typecons : Nullable, tuple;
 import std.functional : unaryFun, toDelegate;
 import sdl2.sdl : Rectangle, Point;
 
@@ -35,9 +35,9 @@ pure Point lerp(Point a, Point b, float t) @safe @nogc nothrow
 
 interface Clickable
 {
-	void mouseMoved(Point p);
-	void mouseButtonDown(Point p);
-	void mouseButtonUp(Point p);
+	@safe void mouseMoved(Point p);
+	@safe void mouseButtonDown(Point p);
+	@safe void mouseButtonUp(Point p);
 }
 
 mixin template MouseUpActivation()

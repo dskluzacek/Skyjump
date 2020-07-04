@@ -17,6 +17,7 @@ interface Player
     bool hasGrid();
     int getScore();
     void addScore(int amount);
+    void setScore(int score);
     Nullable!Card opIndex(uint row, uint col);
     void opIndexAssign(Card c, uint row, uint col);
     void reset();
@@ -77,6 +78,11 @@ class PlayerImpl(GridType) : Player
     override void addScore(int amount)
     {
         score += amount;
+    }
+
+    override void setScore(int value)
+    {
+        score = value;
     }
 
     override Nullable!Card opIndex(uint row, uint col)

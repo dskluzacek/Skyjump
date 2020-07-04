@@ -2,7 +2,7 @@ module server;
 @safe:
 
 import std.stdio;
-import std.algorithm : remove, all, count;
+import std.algorithm : each, remove, all, count;
 import std.string : strip;
 import std.concurrency;
 import std.socket;
@@ -51,7 +51,9 @@ void main() @system
         pollSockets();
 
         receiveTimeout(0.usecs, (string command) {
-            if (command.strip() == "start")
+            command = command.strip();
+
+            if (command == "start")
             {
                 if (model.numberOfPlayers() < 2)
                 {
@@ -71,9 +73,14 @@ void main() @system
                     stdout.flush();
                 }
             }
-            else
+            else if (command.length > 0)
             {
                 writeMsg("Command not recognized");
+            }
+            else
+            {
+                write("$ ");
+                stdout.flush();
             }
         });
     }
@@ -209,7 +216,7 @@ body
 
         client.send(ServerMessageType.YOU_ARE, playerNumber);
         if (player.hasGrid) {
-            client.sendCards(playerNumber, player.getGrid);
+            client.updateCards(playerNumber, player.getGrid);
         }
 
         foreach (key; model.playerKeys())
@@ -218,17 +225,20 @@ body
             {
                 client.playerJoined(key, model[key].getName);
                 if (model[key].hasGrid) {
-                    client.sendCards(key, model[key].getGrid);
+                    client.updateCards(key, model[key].getGrid);
                 }
             }
         }
         model.getDiscardTopCard().ifPresent!( c => client.send(ServerMessageType.DISCARD_CARD, cast(int) c.rank) );
+        client.currentScores(model);
 
         disconnectedPlayers = disconnectedPlayers.remove!( a => a is player );
 
         model.playerReconnected(player);
         model.addObserver(client);
         sendReconnectStateInfo(client);
+
+        disconnectedPlayers.each!( a => client.waiting(model.playerNumberOf(a)) );
     }
     else
     {
@@ -259,24 +269,25 @@ void sendReconnectStateInfo(ConnectedClient client)
         client.chooseFlip();
         break;
     case GameState.PLAYER_TURN:
+        if (model.playerWhoseTurnItIs is client.player)
         {
-            if (model.playerWhoseTurnItIs is client.player)
-            {
-                client.send(ServerMessageType.YOUR_TURN);
-                model.getDrawnCard().ifPresent!((c) {
-                    client.send(ServerMessageType.CARD, cast(int) c.rank);
-                });
-            }
-            else {
-                client.changeTurn(model.getCurrentPlayerTurn);
-            }
+            client.send(ServerMessageType.YOUR_TURN);
+            model.getDrawnCard().ifPresent!((c) {
+                client.send(ServerMessageType.CARD, cast(int) c.rank);
+            });
+        }
+        else {
+            client.changeTurn(model.getCurrentPlayerTurn);
+            model.getDrawnCard().ifPresent!((c) {
+                client.drawpile(model.getCurrentPlayerTurn);
+            });
         }
         break;
     case GameState.BETWEEN_HANDS:
-        throw new Error("not implemented");
-        //break;
+        // do nothing
+        break;
     case GameState.END_GAME:
-        throw new Error("Illegal state (GameState.END_GAME)");
+        throw new Error("Illegal state/not implemented (GameState.END_GAME)");
     }
 }
 
@@ -300,7 +311,8 @@ void playerDraw(ConnectedClient client)
 {
     if (model.getState == GameState.PLAYER_TURN
             && model.playerWhoseTurnItIs is client.player
-            && ! model.hasDrawnCard)
+            && ! model.hasDrawnCard
+            && disconnectedPlayers.length == 0)
     {
         Card c = model.drawCard();
         client.send(ServerMessageType.CARD, cast(int) c.rank);
@@ -321,7 +333,8 @@ void playerPlaceDrawnCard(ConnectedClient client, int row, int col)
 
     if (model.getState == GameState.PLAYER_TURN
             && model.playerWhoseTurnItIs is client.player
-            && model.hasDrawnCard)
+            && model.hasDrawnCard
+            && disconnectedPlayers.length == 0)
     {
         model.exchangeDrawnCard(row, col);   // model will notify all clients
     }
@@ -336,7 +349,8 @@ void playerRejectDrawnCard(ConnectedClient client)
 {
     if (model.getState == GameState.PLAYER_TURN
             && model.playerWhoseTurnItIs is client.player
-            && model.hasDrawnCard)
+            && model.hasDrawnCard
+            && disconnectedPlayers.length == 0)
     {
         model.discardDrawnCard();
     }
@@ -349,7 +363,7 @@ void playerRejectDrawnCard(ConnectedClient client)
 
 void playerTakeDiscardCard(ConnectedClient client, int row, int col)
 {
-    if (row < 0 || row > 2 || col < 0 || col > 3) {
+    if (row < 0 || row > 2 || col < 0 || col > 3 || disconnectedPlayers.length > 0) {
         closeAndWaitForReconnect(client);
         return;
     }
@@ -368,7 +382,7 @@ void playerTakeDiscardCard(ConnectedClient client, int row, int col)
 
 void playerFlipCard(ConnectedClient client, int row, int col)
 {
-    if (row < 0 || row > 2 || col < 0 || col > 3 || client.player[row, col].isNull)
+    if (row < 0 || row > 2 || col < 0 || col > 3 || client.player[row, col].isNull || disconnectedPlayers.length > 0)
     {
         closeAndWaitForReconnect(client);
         return;

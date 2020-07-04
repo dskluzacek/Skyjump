@@ -17,6 +17,7 @@ import playergrid;
 import card;
 
 enum BUFFER_SIZE = 96;
+enum MAX_NAME_LENGTH = 15;
 
 final class ServerPlayer : PlayerImpl!PlayerGrid
 {
@@ -31,6 +32,11 @@ final class ServerPlayer : PlayerImpl!PlayerGrid
     ServerGameModel.Observer observer() pure nothrow @nogc
     {
         return client;
+    }
+
+    void sendCardMessage(CardRank rank)
+    {
+        client.send(ServerMessageType.CARD, cast(int) rank);
     }
 }
 
@@ -185,23 +191,35 @@ final class ConnectedClient : ServerGameModel.Observer
         send(ServerMessageType.RECONNECTED, playerNum);
     }
 
+    override void resumeDraw()
+    {
+        send(ServerMessageType.RESUME_DRAW);
+    }
+
     override void winner(int playerNum)
     {
         send(ServerMessageType.WINNER, playerNum);
     }
 
-    override void currentScores(int[int] scoreMap)
+    override void currentScores(ref ServerGameModel model)
     {
-        assert(0);
+        char[] message = (ServerMessageType.CURRENT_SCORES).dup;
+        message.reserve(48);
+
+        foreach (key; model.playerKeys)
+        {
+            message ~= ' ' ~ key.to!string ~ ' ' ~ model[key].getScore.to!string;
+        }
+
+        _socket.send(message ~ '\n');
     }
 
-    void sendCards(int playerNumber, PlayerGrid grid)
+    override void updateCards(int playerNumber, PlayerGrid grid)
     {
-        char[] message = "cards " ~ playerNumber.to!(char[]);
+        char[] message = ServerMessageType.GRID_CARDS ~ ' ' ~ playerNumber.to!(char[]);
         message.reserve(48);
 
         const Card[][] cards = grid.getCards();
-        //writeln(cards);
 
         foreach (row; 0 .. 3)
         {
@@ -216,7 +234,7 @@ final class ConnectedClient : ServerGameModel.Observer
                     message ~= " ?";
                 }
                 else {
-                    message ~= " " ~ (cast(int) c.rank).to!(char[]);
+                    message ~= " " ~ (cast(int) c.rank).to!string;
                 }
 
             }
@@ -517,8 +535,10 @@ private Nullable!ServerMessage parseServerMessage(in char[] line)
         return ServerMessage.withPlayerNumber(ServerMessageType.WAITING, args[0]).nullable;
     case ServerMessageType.RECONNECTED:
         return ServerMessage.withPlayerNumber(ServerMessageType.RECONNECTED, args[0]).nullable;
+    case ServerMessageType.RESUME_DRAW:
+        return new ServerMessage(ServerMessageType.RESUME_DRAW).nullable;
     case ServerMessageType.CURRENT_SCORES:
-        throw new Error("not implemented");
+        return ServerMessage.currentScores(args).nullable;
     case ServerMessageType.WINNER:
         return ServerMessage.withPlayerNumber(ServerMessageType.WINNER, args[0]).nullable;
     case ServerMessageType.YOUR_TURN:
@@ -559,6 +579,7 @@ final class ServerMessage
         string name;
     }
     Card[][] cards;
+    int[ubyte] scores;
 
 private:
 
@@ -661,15 +682,30 @@ private:
         return new ServerMessage(ServerMessageType.COLUMN_REMOVAL, player, CardRank.UNKNOWN, col);
     }
 
+    static ServerMessage currentScores(const(char)[][] args)
+    {
+        enforce!ProtocolException(args.length % 2 == 0,
+                "expected scores, received: " ~ args.join(" ").idup);
+
+        auto message = new ServerMessage(ServerMessageType.CURRENT_SCORES);
+
+        for (size_t i = 0; i < args.length; i += 2)
+        {
+            message.scores[ args[i].to!ubyte ] = args[i + 1].to!int;
+        }
+
+        return message;
+    }
+
     static ServerMessage gridCards(const(char)[][] args)
     {
         enforce!ProtocolException(args.length == 13,
                 "expected 12 cards, received " ~ (args.length - 1).to!string ~ ": " ~ args.join(" ").idup);
 
-        Card[][] cards = new Card[][3];
-        cards[0] = new Card[4];
-        cards[1] = new Card[4];
-        cards[2] = new Card[4];
+        Card[][] cardArr = new Card[][3];
+        cardArr[0] = new Card[4];
+        cardArr[1] = new Card[4];
+        cardArr[2] = new Card[4];
 
         // first number is player number, cards are indexes 1-12
         foreach (size_t i; 0 .. 12)
@@ -687,9 +723,9 @@ private:
                 c = new Card(args[k].to!(int).intToCard);
                 c.revealed = true;
             }
-            cards[i / 4][i % 4] = c;
+            cardArr[i / 4][i % 4] = c;
         }
-        return new ServerMessage(ServerMessageType.GRID_CARDS, args[0].to!int, cards);
+        return new ServerMessage(ServerMessageType.GRID_CARDS, args[0].to!int, cardArr);
     }
 
     static ServerMessage parse(Seq...)(ServerMessageType msgType, const(char)[][] args)
@@ -714,6 +750,7 @@ enum ServerMessageType : string
     PLAYER_LEFT = "left",
     WAITING = "waiting",
     RECONNECTED = "reconnected",
+    RESUME_DRAW = "resume_draw",
     CURRENT_SCORES = "score",
     WINNER = "winner",
 
@@ -731,15 +768,29 @@ enum ServerMessageType : string
 
 private auto parseArgs(M, T, Seq...)(T msgType, const(char)[][] args)
 {
-    if (args.length != Seq.length) {
-        throw new ProtocolException((msgType ~ " - wrong number of parameters: " ~ args.join(" ")).idup);
+    static if (! is(Seq[Seq.length - 1] == string))
+    {
+        if (args.length != Seq.length) {
+            throw new ProtocolException((msgType ~ " - wrong number of parameters: " ~ args.join(" ")).idup);
+        }
     }
-
     Tuple!Seq result;
 
     foreach (i, Type; Seq)
     {
-        result[i] = args[i].to!Type;
+        static if ( is(Type == string) )
+        {
+            result[i] = args[i .. $].join(" ").idup;
+
+            if (result[i].length > MAX_NAME_LENGTH) {
+                result[i] = result[i][0 .. MAX_NAME_LENGTH];
+            }
+            break;
+        }
+        else
+        {
+            result[i] = args[i].to!Type;
+        }
     }
     return new M(msgType, result[]);
 }

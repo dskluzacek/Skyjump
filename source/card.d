@@ -14,7 +14,7 @@ import sdl2.renderer;
 
 enum highlight_yellow = tuple(255, 255, 165);
 enum pale_indigo = tuple(162, 165, 198);
-enum magenta = tuple(200, 0, 200);
+enum magenta = tuple(255, 0, 255);
 
 enum CardRank : byte
 {
