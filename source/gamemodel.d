@@ -357,10 +357,10 @@ struct ServerGameModel
 
             calculateScores();
             observers.each!( obs => obs.currentScores(this) );
+            currentState = GameState.BETWEEN_HANDS;
             return;
         }
 
-        currentState = GameState.BETWEEN_HANDS;
         forEachOtherObserver!( obs => obs.changeTurn(playerCurrentTurn) );
         (cast(ServerPlayer) players[playerCurrentTurn]).observer().yourTurn();
     }
