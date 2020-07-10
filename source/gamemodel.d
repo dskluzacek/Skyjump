@@ -84,6 +84,11 @@ struct GameModel
         return discardPile.topCard();
     }
 
+    Nullable!(const(Card)) getDiscardSecondCard() const pure nothrow
+    {
+        return discardPile.peek(1);
+    }
+
     Nullable!(Card) popDiscardTopCard() pure nothrow
     {
         return discardPile.pop();
@@ -166,14 +171,20 @@ struct GameModel
         playerOut = playerNum;
     }
 
-    Nullable!ubyte getPlayerOut() pure nothrow
+    Nullable!ubyte getPlayerOut() const pure nothrow
     {
         return playerOut;
     }
 
-    void incrementHandNumber() pure nothrow
+    void nextHand()
     {
         ++handNumber;
+        discardPile = new DiscardStack();
+        playerOut = (Nullable!ubyte).init;
+
+        foreach (player; players) {
+            player.getGrid.clear();
+        }
     }
 
     int getHandNumber() pure nothrow
@@ -192,7 +203,7 @@ struct ServerGameModel
     private Card drawnCard;
     private Observer[] observers;
     private ubyte dealer = 0;
-    private ubyte playerFirstTurn;
+    private ubyte previousPlayerOut;
 
     ubyte addPlayer(Player p, Observer o)
     {
@@ -275,6 +286,11 @@ struct ServerGameModel
         return baseModel.getDiscardTopCard();
     }
 
+    Nullable!ubyte getPlayerOut() const pure nothrow
+    {
+        return baseModel.getPlayerOut();
+    }
+
     void deal()
     {
         assert(currentState == GameState.NOT_STARTED
@@ -341,28 +357,55 @@ struct ServerGameModel
 
         if (playerOut.isNotNull && playerCurrentTurn == playerOut.get)
         {
-            // end the hand
-
-            foreach (key, player; players) {
-                player.getGrid.getCardsAsRange.each!( card => card.revealed = true );
-
-                if (key != playerOut.get) {
-                    observers.each!( obs => obs.updateCards(key, player.getGrid) );
-                }
-
-                foreach (col; 0 .. 4) {
-                    checkColumnEquality(col, player);
-                }
-            }
-
-            calculateScores();
-            observers.each!( obs => obs.currentScores(this) );
-            currentState = GameState.BETWEEN_HANDS;
+            endHand();
             return;
         }
 
         forEachOtherObserver!( obs => obs.changeTurn(playerCurrentTurn) );
         (cast(ServerPlayer) players[playerCurrentTurn]).observer().yourTurn();
+    }
+
+    void endHand()
+    {
+        foreach (key, player; players) {
+            player.getGrid.getCardsAsRange.each!( card => card.revealed = true );
+
+            if (key != playerOut.get) {
+                observers.each!( obs => obs.updateCards(key, player.getGrid) );
+            }
+
+            foreach (col; 0 .. 4) {
+                checkColumnEquality(col, player);
+            }
+        }
+
+        calculateScores();
+        observers.each!( obs => obs.currentScores(this) );
+        currentState = GameState.BETWEEN_HANDS;
+    }
+
+    void nextHand()
+    {
+        assert(currentState == GameState.BETWEEN_HANDS);
+        assert(drawnCard is null);
+
+        baseModel.nextHand();
+        deck = new Deck();
+    }
+
+    void recycleDiscards()
+    {
+        assert(discardPile.size > 0);
+
+        Card top = discardPile.pop().get;
+        Card[] cards = discardPile.getCards().dup;
+        discardPile.clear();
+        discardPile.push(top);
+
+        foreach (card; cards) {
+            card.revealed = false;
+        }
+        deck.setCards(cards);
     }
 
     // Draws a card for the current player and returns it. Other clients/observers are notified.
@@ -373,7 +416,14 @@ struct ServerGameModel
         assert(currentState == GameState.PLAYER_TURN);
         assert(drawnCard is null);
 
-        drawnCard = deck.randomCard().get;  // TODO recycle discards to the deck if empty
+        auto c = deck.randomCard();
+
+        if (c.isNull) {
+            recycleDiscards();
+            c = deck.randomCard();
+        }
+
+        drawnCard = c.get;
         forEachOtherObserver!( obs => obs.drawpile(playerCurrentTurn) );
         return drawnCard;
     }
@@ -626,20 +676,22 @@ struct ServerGameModel
                 assert(maxPlayer !is null);
                 assert(max != int.min);
 
-                playerFirstTurn = cast(ubyte) playerNumberOf(maxPlayer);
+                playerCurrentTurn = cast(ubyte) playerNumberOf(maxPlayer);
             }
             else
             {
-                playerFirstTurn = getNextPlayerAfter(playerFirstTurn);
+                playerCurrentTurn = previousPlayerOut;
             }
-            playerCurrentTurn = playerFirstTurn;
+
             beginTurn!true();
         }
     }
 
     private void checkColumnEquality(int col, Player p)
     {
-        //Player p = players[playerCurrentTurn];
+        if (p[0, col].isNull) {
+            return;
+        }
 
         assert(p[0, col].isNotNull);
         assert(p[1, col].isNotNull);
@@ -683,6 +735,7 @@ struct ServerGameModel
         }
 
         playerOut = playerCurrentTurn;
+        previousPlayerOut = playerCurrentTurn;
         observers.each!( obs => obs.lastTurn(playerCurrentTurn) );
     }
 

@@ -10,6 +10,7 @@ import sdl2.texture;
 import sdl2.renderer;
 import card;
 import util;
+import draganddrop;
 
 enum card_large_height  = 240,
      card_large_width   = 172,
@@ -228,13 +229,15 @@ class ClientPlayerGrid
 }
 
 final class ClickablePlayerGrid :
-    ClientPlayerGrid!(card_large_width, card_large_height, large_row_coord, large_col_coord), Clickable
+    ClientPlayerGrid!(card_large_width, card_large_height, large_row_coord, large_col_coord),
+    Clickable, DragAndDropTarget
 {
     private
     {
         GridHighlightMode mode = GridHighlightMode.OFF;
         Nullable!Card cardBeingClicked;
         void delegate(int, int) clickHandler;
+        void delegate(int, int) dropHandler;
         Point lastMousePosition;
         bool mouseDown;
     }
@@ -296,6 +299,11 @@ final class ClickablePlayerGrid :
         this.clickHandler = handler;
     }
 
+    void onDrop(void delegate(int, int) @safe handler) @property pure nothrow @nogc
+    {
+        this.dropHandler = handler;
+    }
+
     override void drawCard(Card c, Card.Highlight highlight, int row, int col, ref Renderer renderer)
     {
         if (c is null) {
@@ -316,6 +324,28 @@ final class ClickablePlayerGrid :
         }
 
         super.drawCard(c, shouldHighlight, row, col, renderer);
+    }
+
+    override void drop(Rectangle rect)
+    {
+        dropHandler( getRowAndColumn(Point(rect.x, rect.y))[] );
+    }
+
+    override Rectangle[] getBoxes()
+    {
+        Rectangle[] result;
+
+        foreach (row; 0 .. 3)
+        {
+            foreach (col; 0 .. 4)
+            {
+                if (cards[row][col] !is null) {
+                    result ~= getBox(row, col);
+                }
+            }
+        }
+
+        return result;
     }
 
     private auto getRowAndColumn(Point mouse) const pure nothrow @nogc

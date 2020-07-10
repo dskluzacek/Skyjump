@@ -241,6 +241,15 @@ final class DiscardStack
         return cards[cards.length - 1].nullable;
     }
 
+    Nullable!(const(Card)) peek(uint cardsFromTop) const pure nothrow
+    {
+        if (cards.length <= cardsFromTop) {
+            return (Nullable!(const(Card))).init;
+        }
+
+        return cards[cards.length - cardsFromTop - 1].nullable;
+    }
+
     Nullable!Card pop() pure nothrow
     {
         if (cards.length == 0) {
@@ -256,6 +265,11 @@ final class DiscardStack
     {
         auto arr = someCards.array;
         cards = arr ~ cards;
+    }
+
+    void clear() pure nothrow
+    {
+        cards.length = 0;
     }
 
     Card[] getCards() pure nothrow

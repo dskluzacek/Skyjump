@@ -1,6 +1,7 @@
 module util;
 
-import std.algorithm : remove;
+import std.math : abs, sqrt;
+import std.algorithm : remove, min, max;
 import std.array : array;
 import std.traits;
 import std.typecons : Nullable, tuple;
@@ -10,6 +11,11 @@ import sdl2.sdl : Rectangle, Point;
 pure float lerp(float value1, float value2, float t) @safe @nogc nothrow
 {
 	return ((1 - t) * value1) + (t * value2);
+}
+
+pure Point lerp(Point a, Point b, float t) @safe @nogc nothrow
+{
+	return Point(cast(int) lerp(a.x, b.x, t), cast(int) lerp(a.y, b.y, t));
 }
 
 pure bool containsPoint(Rectangle rect, int x, int y) @safe @nogc nothrow
@@ -28,9 +34,36 @@ pure Point offset(Point a, int x, int y) @safe @nogc nothrow
 	return Point(a.x + x, a.y + y);
 }
 
-pure Point lerp(Point a, Point b, float t) @safe @nogc nothrow
+pure Rectangle offset(Rectangle a, int x, int y) @safe @nogc nothrow
 {
-	return Point(cast(int) lerp(a.x, b.x, t), cast(int) lerp(a.y, b.y, t));
+	return Rectangle(a.x + x, a.y + y, a.w, a.h);
+}
+
+pure float distance(T)(T a, T b) @safe @nogc nothrow
+	if (is(T : Point) || is(T : Rectangle))
+{
+	float dx = abs(a.x - b.x);
+	float dy = abs(a.y - b.y);
+
+	return sqrt(dx * dx + dy * dy);
+}
+
+pure long intersectionArea(Rectangle a, Rectangle b) @safe @nogc nothrow
+{
+	auto maxX_a = a.x + a.w;
+	auto maxX_b = b.x + b.w;
+	auto maxY_a = a.y + a.h;
+	auto maxY_b = b.y + b.h;
+
+	auto dx = min(maxX_a, maxX_b) - max(a.x, b.x);
+	auto dy = min(maxY_a, maxY_b) - max(a.y, b.y);
+
+	if (dx >= 0 && dy >= 0) {
+		return dx * dy;
+	}
+	else {
+		return -1;
+	}
 }
 
 interface Clickable

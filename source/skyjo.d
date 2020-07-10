@@ -35,6 +35,7 @@ import net;
 import util;
 import label;
 import button;
+import draganddrop;
 
 enum window_title = "Skyjo";
 enum version_str  = "pre-alpha";
@@ -56,6 +57,7 @@ enum total_audio_channels        = 8,
      num_reserved_audio_channels = 3;
 
 enum anim_duration = 285.msecs;
+enum dragged_anim_speed = 0.728f;  // pixels per ms
 
 Card unknown_card;
 
@@ -303,10 +305,7 @@ void masterLoop( ref Window window,
 	addClickable(drawPile);
 	addClickable(discardPile);
 	addClickable(cancelButton);
-
-	addObserver!"mouseMotion"((event) {
-		drawnCard.mouseMoved(Point(event.x, event.y));
-	});
+	addClickable(drawnCard);
 
 	grid.onClick = (int r, int c) {};
 
@@ -565,6 +564,7 @@ void handleMessage(ServerMessage message)
 		pendingActions.insertBack(() => removeColumn(message.playerNumber.to!ubyte, message.col));
 		break;
 	case ServerMessageType.LAST_TURN:
+		model.setPlayerOut(message.playerNumber.to!ubyte);
 		lastTurnLabel1.setVisible(true);
 		lastTurnLabel2.setVisible(true);
 		lastTurnSoundTimerStart = MonoTime.currTime();
@@ -606,14 +606,16 @@ void handleMessage(ServerMessage message)
 		break;
 	case ServerMessageType.YOU_ARE:
 		localPlayerNumber = message.playerNumber.to!ubyte;
-		assert(localPlayer !is null);
+		enforce!ProtocolException(localPlayer !is null);
 		model.setPlayer(localPlayer, localPlayerNumber);
 		break;
 	case ServerMessageType.CARD:
 		showDrawnCard(message.card1);
 		break;
 	case ServerMessageType.GRID_CARDS:
-		model.getPlayer(message.playerNumber.to!ubyte).getGrid.setCards(message.cards);
+		pendingActions.insertBack({
+			model.getPlayer(message.playerNumber.to!ubyte).getGrid.setCards(message.cards);
+		});
 		break;
 	case ServerMessageType.IN_PROGRESS:
 		break;
@@ -635,8 +637,10 @@ void enterNoActionMode(UIMode mode = UIMode.NO_ACTION)
 	drawPile.enabled = false;
 	drawPile.onClick = {};
 	discardPile.enabled = false;
+	discardPile.dragEnabled = false;
 	discardPile.onClick = {};
 	drawnCard.enabled = false;
+	drawnCard.dragEnabled = false;
 	drawnCard.onClick = {};
 	cancelButton.enabled = false;
 	cancelButton.visible = false;
@@ -674,6 +678,10 @@ void playerReconnected(int number)
 
 void beginDealing(int dealer)
 {
+	if (model.getPlayerOut.isNotNull) {
+		model.nextHand();
+	}
+
 	AbstractClientGrid[] clientGrids;
 	clientGrids.reserve(model.numberOfPlayers);
 
@@ -759,6 +767,7 @@ void startTurn()
 		enterNoActionMode();   // reset everything first
 		currentMode = UIMode.SWAP_CARD_ACTION;
 		discardPile.enabled = true;   // to enable the 'not interactable' highlight
+		discardPile.dragEnabled = true;
 		grid.onClick = (row, col) {
 			enterNoActionMode();
 			connection.send(ClientMessageType.SWAP, row, col);
@@ -769,6 +778,13 @@ void startTurn()
 			enterNoActionMode();
 			startTurn();
 		};
+	};
+
+	discardPile.dragEnabled = true;
+	discardPile.setTargets([grid]);
+	grid.onDrop = (row, col) {
+		enterNoActionMode();
+		connection.send(ClientMessageType.SWAP, row, col);
 	};
 }
 
@@ -814,9 +830,21 @@ void discardSwap(int playerNumber, int row, int col, CardRank cardTaken, CardRan
 
 	Player player = model.getPlayer(playerNumber.to!ubyte);
 	const cardRect = (cast(AbstractClientGrid) player.getGrid).getCardDestination(row, col);
+	Rectangle originRect;
+	Duration animDuration;
 
-	moveAnim = MoveAnimation(popped.get, discard_pile_rect, cardRect, 750.msecs);
+	if ( discardPile.isDropped() ) {
+		originRect = discard_pile_rect.offset( discardPile.positionAdjustment()[] );
+		animDuration = (cast(long) (distance(originRect, cardRect) / dragged_anim_speed)).msecs;
+	}
+	else {
+		originRect = discard_pile_rect;
+		animDuration = 750.msecs;
+	}
+
+	moveAnim = MoveAnimation(popped.get, originRect, cardRect, animDuration);
 	moveAnim.onFinished = {
+		discardPile.reset();  // reset drag-and-drop state
 		dealSound.play();
 		Card c;
 
@@ -848,16 +876,23 @@ void enterDrawnCardActionMode()
 	discardPile.enabled = true;
 	currentMode = UIMode.DRAWN_CARD_ACTION;
 
-	localPlayer.getGrid.onClick = (int r, int c) {
+	drawnCard.dragEnabled = true;
+	drawnCard.setTargets([cast(DragAndDropTarget) localPlayer.getGrid, discardPile]);
+
+	auto placeHandler = asDelegate((int r, int c) {
 		enterNoActionMode();
 		connection.send(ClientMessageType.PLACE, r, c);
-	};
+	});
+	localPlayer.getGrid.onClick = placeHandler;
+	localPlayer.getGrid.onDrop = placeHandler;
 
-	discardPile.onClick = {
+	auto discardHandler = asDelegate({
 		enterNoActionMode();
 		connection.send(ClientMessageType.REJECT);
 		discardDrawnCard();
-	};
+	});
+	discardPile.onClick = discardHandler;
+	discardPile.onDrop = discardHandler;
 }
 
 void showDrawnCard(CardRank rank)
@@ -889,22 +924,33 @@ void placeDrawnCard(T)(T player, int row, int col, CardRank takenRank, CardRank 
 	}
 
 	enterNoActionMode();
+	const cardRect = (cast(AbstractClientGrid) player.getGrid).getCardDestination(row, col);
 	Card taken;
+	Rectangle originRect;
+	Duration animDuration;
 
 	static if (is(T == LocalPlayer)) {
 		assignTaken(drawnCard.drawnCard, taken);
 		taken.revealed = true;
-		alias start = drawn_card_rect;
+
+		if ( drawnCard.isDropped() ) {
+			originRect = drawn_card_rect.offset( drawnCard.positionAdjustment()[] );
+			animDuration = (cast(long) (distance(originRect, cardRect) / dragged_anim_speed)).msecs;
+		}
+		else {
+			originRect = drawn_card_rect;
+			animDuration = 750.msecs;
+		}
 	}
 	else {
 		assignTaken(opponentDrawnCard, taken);
-		alias start = opponentDrawnCardRect;
+		originRect = opponentDrawnCardRect;
+		animDuration = 750.msecs;
 	}
 
-	const cardRect = (cast(AbstractClientGrid) player.getGrid).getCardDestination(row, col);
-	moveAnim = MoveAnimation(taken, start, cardRect, 750.msecs);
-
+	moveAnim = MoveAnimation(taken, originRect, cardRect, animDuration);
 	moveAnim.onFinished = {
+		drawnCard.reset();
 		dealSound.play();
 		Card c;
 
@@ -938,8 +984,21 @@ void discardDrawnCard()
 	Card c = drawnCard.drawnCard;
 	drawnCard.drawnCard = null;
 
-	moveAnim = MoveAnimation(c, drawn_card_rect, discard_pile_rect, 750.msecs);
+	Rectangle originRect;
+	Duration animDuration;
+
+	if ( drawnCard.isDropped() ) {
+		originRect = drawn_card_rect.offset( drawnCard.positionAdjustment()[] );
+		animDuration = (cast(long) (distance(originRect, discard_pile_rect) / dragged_anim_speed)).msecs;
+	}
+	else {
+		originRect = drawn_card_rect;
+		animDuration = 750.msecs;
+	}
+
+	moveAnim = MoveAnimation(c, originRect, discard_pile_rect, animDuration);
 	moveAnim.onFinished = {
+		drawnCard.reset();
 		discardSound.play();
 		model.pushToDiscard(c);
 	};
@@ -1197,10 +1256,11 @@ abstract class ClickableCardPile : Clickable
 
 	this(Point position)
 	{
+		this.position = position;
 		this.setRectangle(Rectangle(position.x, position.y, card_large_width, card_large_height));
 	}
 
-	final void render(ref Renderer renderer, const bool windowHasFocus)
+	void render(ref Renderer renderer, const bool windowHasFocus)
 	{
 		getShownCard().ifPresent!( c => c.draw(renderer, position, card_large_width, card_large_height,
 			windowHasFocus && shouldBeHighlighted() ? highlightMode() : unhoveredHighlightMode()) );
@@ -1213,12 +1273,54 @@ abstract class ClickableCardPile : Clickable
 	abstract Card.Highlight unhoveredHighlightMode();
 }
 
-final class DiscardPile : ClickableCardPile
+abstract class DraggableCardPile : ClickableCardPile
 {
+	mixin DragAndDrop;
+
 	this(Point position)
 	{
 		super(position);
-		this.position = position;
+	}
+
+	override void render(ref Renderer renderer, const bool windowHasFocus)
+	{
+		auto drawPosition = position;
+		Card.Highlight mode = windowHasFocus && shouldBeHighlighted() ? highlightMode() : unhoveredHighlightMode();
+
+		if ( isBeingDragged() || (isDropped() && numberOfAnimations == 0) ) {
+			drawPosition = drawPosition.offset( positionAdjustment()[] );
+
+			mode = isBeingDragged() ? Card.Highlight.HOVER : Card.Highlight.OFF;
+		}
+
+		getShownCard().ifPresent!( c => c.draw(renderer, drawPosition,
+		                                       card_large_width, card_large_height, mode) );
+	}
+}
+
+final class DiscardPile : DraggableCardPile, DragAndDropTarget
+{
+	private void delegate() dropHandler;
+
+	this(Point position)
+	{
+		super(position);
+		//this.position = position;
+	}
+
+	void onDrop(void delegate() @safe handler) @property pure nothrow @nogc
+	{
+		this.dropHandler = handler;
+	}
+
+	override void render(ref Renderer renderer, const bool windowHasFocus)
+	{
+		if ( isBeingDragged() ) {
+			model.getDiscardSecondCard.ifPresent!(
+				c => c.draw(renderer, position, card_large_width, card_large_height, Card.Highlight.OFF) );
+		}
+
+		super.render(renderer, windowHasFocus);
 	}
 
 	override Nullable!(const Card) getShownCard()
@@ -1251,6 +1353,16 @@ final class DiscardPile : ClickableCardPile
 			return Card.Highlight.OFF;
 		}
 	}
+
+	override Rectangle[] getBoxes()
+	{
+		return [box];
+	}
+
+	override void drop(Rectangle r)
+	{
+		dropHandler();
+	}
 }
 
 final class DrawPile : ClickableCardPile
@@ -1258,7 +1370,7 @@ final class DrawPile : ClickableCardPile
 	this(Point position)
 	{
 		super(position);
-		this.position = position;
+		//this.position = position;
 	}
 
 	override Nullable!(const Card) getShownCard() const
@@ -1282,14 +1394,14 @@ final class DrawPile : ClickableCardPile
 	}
 }
 
-final class DrawnCard : ClickableCardPile
+final class DrawnCard : DraggableCardPile
 {
 	Card drawnCard;
 
 	this(Point position)
 	{
 		super(position);
-		this.position = position;
+		//this.position = position;
 	}
 
 	override Nullable!(const Card) getShownCard() const

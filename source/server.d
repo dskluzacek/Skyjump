@@ -73,6 +73,27 @@ void main() @system
                     stdout.flush();
                 }
             }
+            else if (command == "next")
+            {
+                if (model.getState != GameState.BETWEEN_HANDS)
+                {
+                    writeMsg("Can't start a new hand - not between hands");
+                }
+                else if (disconnectedPlayers.length > 0)
+                {
+                    writeMsg("Can't start a new hand - not all players connected");
+                }
+                else
+                {
+                    foreach (client; clients) {
+                        client.readyReceived = false;
+                    }
+                    model.nextHand();
+                    model.deal();
+                    write("$ ");
+                    stdout.flush();
+                }
+            }
             else if (command.length > 0)
             {
                 writeMsg("Command not recognized");
@@ -229,8 +250,9 @@ body
                 }
             }
         }
-        model.getDiscardTopCard().ifPresent!( c => client.send(ServerMessageType.DISCARD_CARD, cast(int) c.rank) );
         client.currentScores(model);
+        model.getDiscardTopCard().ifPresent!( c => client.send(ServerMessageType.DISCARD_CARD, cast(int) c.rank) );
+        model.getPlayerOut().ifPresent!( a => client.lastTurn(a) );
 
         disconnectedPlayers = disconnectedPlayers.remove!( a => a is player );
 
@@ -271,13 +293,18 @@ void sendReconnectStateInfo(ConnectedClient client)
     case GameState.PLAYER_TURN:
         if (model.playerWhoseTurnItIs is client.player)
         {
-            client.send(ServerMessageType.YOUR_TURN);
+            if (disconnectedPlayers.length > 0) {          // don't send if this was the last player to reconnect
+                client.send(ServerMessageType.YOUR_TURN);  // as the model will notify observers
+            }
             model.getDrawnCard().ifPresent!((c) {
                 client.send(ServerMessageType.CARD, cast(int) c.rank);
             });
         }
-        else {
-            client.changeTurn(model.getCurrentPlayerTurn);
+        else
+        {
+            if (disconnectedPlayers.length > 0) {
+                client.changeTurn( model.getCurrentPlayerTurn);
+            }
             model.getDrawnCard().ifPresent!((c) {
                 client.drawpile(model.getCurrentPlayerTurn);
             });
@@ -334,6 +361,7 @@ void playerPlaceDrawnCard(ConnectedClient client, int row, int col)
     if (model.getState == GameState.PLAYER_TURN
             && model.playerWhoseTurnItIs is client.player
             && model.hasDrawnCard
+            && client.player[row, col].isNotNull
             && disconnectedPlayers.length == 0)
     {
         model.exchangeDrawnCard(row, col);   // model will notify all clients
@@ -370,7 +398,9 @@ void playerTakeDiscardCard(ConnectedClient client, int row, int col)
 
     if (model.getState == GameState.PLAYER_TURN
             && model.playerWhoseTurnItIs is client.player
-            && ! model.hasDrawnCard)
+            && ! model.hasDrawnCard
+            && client.player[row, col].isNotNull
+            && disconnectedPlayers.length == 0)
     {
         model.takeDiscardCard(row, col);
     }
@@ -390,14 +420,12 @@ void playerFlipCard(ConnectedClient client, int row, int col)
 
     if (model.getState == GameState.PLAYER_TURN && ! model.hasDrawnCard
          && model.playerWhoseTurnItIs is client.player
-         && client.player[row, col].isNotNull
          && client.player[row, col].get.revealed == false)
     {
         model.flipCard(row, col);
     }
     else if (model.getState == GameState.FLIP_CHOICE
               && client.player.getGrid.getCardsAsRange.count!(a => a.revealed) < 2
-              && client.player[row, col].isNotNull
               && client.player[row, col].get.revealed == false)
     {
         model.flipCard(client.player, row, col);
