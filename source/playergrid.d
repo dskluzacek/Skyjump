@@ -230,7 +230,7 @@ class ClientPlayerGrid
 
 final class ClickablePlayerGrid :
     ClientPlayerGrid!(card_large_width, card_large_height, large_row_coord, large_col_coord),
-    Clickable, DragAndDropTarget
+    Clickable, DragAndDropTarget, Focusable
 {
     private
     {
@@ -238,6 +238,12 @@ final class ClickablePlayerGrid :
         Nullable!Card cardBeingClicked;
         void delegate(int, int) clickHandler;
         void delegate(int, int) dropHandler;
+        Focusable drawPile;
+        Focusable discardPile;
+        Focusable cancelButton;
+        FocusType focusType;
+        FocusType windowFocusType;
+        Tuple!(int, "row", int, "col") focusedCard;
         Point lastMousePosition;
         bool mouseDown;
     }
@@ -245,6 +251,13 @@ final class ClickablePlayerGrid :
     this(Point position) pure nothrow
     {
         super(position);
+    }
+
+    void setFocusables(Focusable drawPile, Focusable discardPile, Focusable cancelButton) @trusted
+    {
+        this.drawPile = drawPile;
+        this.discardPile = discardPile;
+        this.cancelButton = cancelButton;
     }
 
     override void mouseMoved(Point position) pure nothrow @nogc
@@ -267,7 +280,7 @@ final class ClickablePlayerGrid :
             Card cardHovered = cards[coords.get.row][coords.get.col];
 
             if (mouseDown && cardBeingClicked.isNotNull
-            && cardHovered !is null && cardHovered is cardBeingClicked.get)
+                && cardHovered !is null && cardHovered is cardBeingClicked.get)
             {
                 clickHandler(coords.get[]);
             }
@@ -307,19 +320,44 @@ final class ClickablePlayerGrid :
     override void drawCard(Card c, Card.Highlight highlight, int row, int col, ref Renderer renderer)
     {
         if (c is null) {
-            return;
+            return ;
         }
 
         auto shouldHighlight = Card.Highlight.OFF;
 
-        if ( (mouseDown && cardBeingClicked.isNotNull && cardBeingClicked.get is c)
-            || (!mouseDown && getBox(row, col).containsPoint(lastMousePosition)) )
+        if (windowFocusType == FocusType.STRONG)
+        {
+            if (focusType == FocusType.STRONG && row == focusedCard.row && col == focusedCard.col)
+            {
+                if (mode == GridHighlightMode.SELECTION)
+                {
+                    if (c.revealed) {
+                        shouldHighlight = Card.Highlight.HAS_FOCUS_INVALID_CHOICE;
+                    }
+                    else {
+                        shouldHighlight = Card.Highlight.HAS_FOCUS;
+                    }
+                }
+                else if (mode == GridHighlightMode.PLACEMENT)
+                {
+                    shouldHighlight = Card.Highlight.PLACE;
+                }
+            }
+        }
+        else if ( (mouseDown && cardBeingClicked.isNotNull && cardBeingClicked.get is c)
+                 || (!mouseDown && getBox(row, col).containsPoint(lastMousePosition)) )
         {
             if (mode == GridHighlightMode.SELECTION && ! c.revealed) {
                 shouldHighlight = Card.Highlight.HOVER;
             }
             else if (mode == GridHighlightMode.PLACEMENT) {
                 shouldHighlight = Card.Highlight.PLACE;
+            }
+        }
+        else if (focusType == FocusType.WEAK && row == focusedCard.row && col == focusedCard.col)
+        {
+            if (mode == GridHighlightMode.SELECTION || mode == GridHighlightMode.PLACEMENT) {
+                shouldHighlight = Card.Highlight.HAS_FOCUS_MOUSE_MOVED;
             }
         }
 
@@ -346,6 +384,202 @@ final class ClickablePlayerGrid :
         }
 
         return result;
+    }
+
+    override void activate()
+    {
+        assert(mode != GridHighlightMode.OFF);
+
+        clickHandler(focusedCard.row, focusedCard.col);
+
+        mouseDown = false;
+        cardBeingClicked = (Nullable!Card).init;
+    }
+
+    override bool focusEnabled()
+    {
+        return mode != GridHighlightMode.OFF;
+    }
+
+    override void receiveFocus()
+    {
+        focusType = FocusType.STRONG;
+
+        if (cards[focusedCard.row][focusedCard.col] is null) {
+            nextTab();
+        }
+    }
+
+    override void receiveFocusFrom(Focusable f)
+    {
+        focusType = FocusType.STRONG;
+
+        if (f is discardPile) {
+            focusedCard = tuple(0, 2);
+        }
+        else if (f is cancelButton) {
+            focusedCard = tuple(0, 3);
+        }
+        else if (f is drawPile) {
+            focusedCard = tuple(0, 0);
+        }
+
+        if (cards[focusedCard.row][focusedCard.col] is null) {
+            nextTab();
+        }
+    }
+
+    override Focusable nextUp()
+    {
+        Focusable result = null;
+
+        if (focusedCard.row == 0)
+        {
+            if (focusedCard.col <= 1)
+            {
+                if (drawPile.focusEnabled) {
+                    result = drawPile;
+                }
+                else if (discardPile.focusEnabled) {
+                    result = discardPile;
+                }
+                else if (cancelButton.focusEnabled) {
+                    result = cancelButton;
+                }
+            }
+            else
+            {
+                if (cancelButton.focusEnabled) {
+                    result = cancelButton;
+                }
+                else if (discardPile.focusEnabled) {
+                    result = discardPile;
+                }
+            }
+
+            if (result !is null) {
+                return result;
+            }
+            else {
+                return this;
+            }
+        }
+        else
+        {
+            focusedCard.row -= 1;
+            return this;
+        }
+    }
+
+    override Focusable nextDown()
+    {
+        if (focusedCard.row < 2) {
+            focusedCard.row += 1;
+        }
+        return this;
+    }
+
+    override Focusable nextLeft()
+    {
+        int col = nextLeft(focusedCard.row, focusedCard.col - 1);
+
+        if (col >= 0) {
+            focusedCard.col = col;
+        }
+        return this;
+    }
+
+    private int nextLeft(int row, int col)
+    {
+        if (col < 0) {
+            return -1;
+        }
+        else if (cards[row][col] !is null) {
+            return col;
+        }
+        else {
+            return nextLeft(row, col - 1);
+        }
+    }
+
+    override Focusable nextRight()
+    {
+        int col = nextRight(focusedCard.row, focusedCard.col + 1);
+
+        if (col != -1) {
+            focusedCard.col = col;
+        }
+        return this;
+    }
+
+    private int nextRight(int row, int col)
+    {
+        if (col > 3) {
+            return -1;
+        }
+        else if (cards[row][col] !is null) {
+            return col;
+        }
+        else {
+            return nextRight(row, col + 1);
+        }
+    }
+
+    override Focusable nextTab()
+    {
+        if (focusedCard.col < 3)
+        {
+            focusedCard.col += 1;
+        }
+        else
+        {
+            if (focusedCard.row < 2)
+            {
+                focusedCard.row += 1;
+                focusedCard.col = 0;
+            }
+            else
+            {
+                if (drawPile.focusEnabled) {
+                    return drawPile;
+                }
+                else if (discardPile.focusEnabled) {
+                    return discardPile;
+                }
+                else if (cancelButton.focusEnabled) {
+                    return cancelButton;
+                }
+                else {
+                    focusedCard = tuple(0, 0);
+                    return this;
+                }
+            }
+        }
+
+        if (cards[focusedCard.row][focusedCard.col] is null) {
+            return nextTab();
+        }
+        else {
+            return this;
+        }
+    }
+
+    override void cursorMoved()
+    {
+        if (focusType == FocusType.STRONG) {
+            focusType = FocusType.WEAK;
+        }
+    }
+
+    override void loseFocus()
+    {
+        focusType = FocusType.NONE;
+        focusedCard = tuple(0, 0);
+    }
+
+    override void windowFocusNotify(FocusType type)
+    {
+        this.windowFocusType = type;
     }
 
     private auto getRowAndColumn(Point mouse) const pure nothrow @nogc

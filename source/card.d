@@ -12,6 +12,8 @@ import sdl2.sdl : Point, Rectangle;
 import sdl2.texture;
 import sdl2.renderer;
 
+import util : drawBorder;
+
 enum highlight_yellow = tuple(255, 255, 165);
 enum pale_indigo = tuple(162, 165, 198);
 enum magenta = tuple(255, 0, 255);
@@ -101,10 +103,13 @@ final class Card
         if (highlight == Highlight.HOVER || highlight == Highlight.HAS_FOCUS) {
             texture.setColorMod(pale_indigo[]);
         }
+        else if (highlight == Highlight.HAS_FOCUS_INVALID_CHOICE) {
+            texture.setColorMod(255, 128, 128);
+        }
         renderer.renderCopy(texture, position.x, position.y, width, height);
         texture.setColorMod(255, 255, 255);
 
-        if (highlight == Highlight.HAS_FOCUS) {
+        if (highlight == Highlight.HAS_FOCUS || highlight == Highlight.HAS_FOCUS_INVALID_CHOICE) {
             drawBorder(renderer, width, height, position, highlight_yellow[]);
         }
         else if (highlight == Highlight.HAS_FOCUS_MOUSE_MOVED) {
@@ -118,19 +123,6 @@ final class Card
         }
     }
 
-    private void drawBorder(ref Renderer renderer,
-                            int width,
-                            int height,
-                            Point position,
-                            ubyte r, ubyte g, ubyte b) const
-    {
-        renderer.setDrawColor(r, g, b);
-        renderer.fillRectangle(Rectangle(position.x-8, position.y-8, 8, height+16));
-        renderer.fillRectangle(Rectangle(position.x-8, position.y-8, width+16, 8));
-        renderer.fillRectangle(Rectangle(position.x + width, position.y-8, 8, height+16));
-        renderer.fillRectangle(Rectangle(position.x-8, position.y + height, width+16, 8));
-    }
-
     static setTexture(CardRank rank, Texture texture) nothrow
     {
         cardTextures[rank] = texture;
@@ -141,6 +133,7 @@ final class Card
         OFF,
         HOVER,
         HAS_FOCUS,
+        HAS_FOCUS_INVALID_CHOICE,
         HAS_FOCUS_MOUSE_MOVED,
         PLACE,
         SELECTED_HOVER

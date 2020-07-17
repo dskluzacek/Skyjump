@@ -7,6 +7,7 @@ import std.traits;
 import std.typecons : Nullable, tuple;
 import std.functional : unaryFun, toDelegate;
 import sdl2.sdl : Rectangle, Point;
+import sdl2.renderer;
 
 pure float lerp(float value1, float value2, float t) @safe @nogc nothrow
 {
@@ -66,6 +67,19 @@ pure long intersectionArea(Rectangle a, Rectangle b) @safe @nogc nothrow
 	}
 }
 
+void drawBorder(ref Renderer renderer,
+                int width,
+                int height,
+                Point position,
+                ubyte r, ubyte g, ubyte b) @safe @nogc nothrow
+{
+	renderer.setDrawColor(r, g, b);
+	renderer.fillRectangle(Rectangle(position.x-8, position.y-8, 8, height+16));
+	renderer.fillRectangle(Rectangle(position.x-8, position.y-8, width+16, 8));
+	renderer.fillRectangle(Rectangle(position.x + width, position.y-8, 8, height+16));
+	renderer.fillRectangle(Rectangle(position.x-8, position.y + height, width+16, 8));
+}
+
 interface Clickable
 {
 	@safe void mouseMoved(Point p);
@@ -95,6 +109,11 @@ mixin template MouseUpActivation()
 	void enabled(bool value) @property pure nothrow @nogc
 	{
 		isEnabled = value;
+	}
+
+	bool enabled() @property pure nothrow @nogc
+	{
+		return isEnabled;
 	}
 
 	void setRectangle(Rectangle box) pure nothrow @nogc
@@ -219,4 +238,70 @@ bool isNotNull(T)(auto ref T t) if (isInstanceOf!(Nullable, T))
 @trusted auto asDelegate(T)(auto ref T t) if (isCallable!T)
 {
 	return toDelegate(t);
+}
+
+interface Focusable
+{
+@safe:
+
+	bool focusEnabled();
+	void receiveFocus();
+	void receiveFocusFrom(Focusable f);
+	void windowFocusNotify(FocusType type);
+	void loseFocus();
+	Focusable nextUp();
+	Focusable nextLeft();
+	Focusable nextRight();
+	Focusable nextDown();
+	Focusable nextTab();
+	void cursorMoved();
+	void activate();
+}
+
+enum FocusType
+{
+	NONE,
+	WEAK,
+	STRONG
+}
+
+mixin template BasicFocusable()
+{
+	private FocusType focusType;
+	private FocusType windowFocusType;
+
+	void receiveFocus()
+    {
+        focusType = FocusType.STRONG;
+    }
+
+    void receiveFocusFrom(Focusable f)
+	{
+		receiveFocus();
+	}
+
+	void loseFocus()
+	{
+		focusType = FocusType.NONE;
+	}
+
+	void windowFocusNotify(FocusType type)
+	{
+		windowFocusType = type;
+	}
+
+    void cursorMoved()
+	{
+		if (focusType == FocusType.STRONG) {
+			focusType = FocusType.WEAK;
+		}
+	}
+
+	void activate()
+	{
+		clickHandler();
+
+		mouseDown = false;
+		beingClicked = false;
+	}
 }

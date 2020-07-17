@@ -94,13 +94,15 @@ private
 	Button cancelButton;
 	Card opponentDrawnCard;
 	Rectangle opponentDrawnCardRect;
-	MoveAnimation moveAnim;
-	DealAnimation dealAnim;
 	Label lastTurnLabel1;
 	Label lastTurnLabel2;
+	MoveAnimation moveAnim;
+	DealAnimation dealAnim;
 	DList!(void delegate()) pendingActions;
 	MonoTime yourTurnSoundTimerStart;
 	MonoTime lastTurnSoundTimerStart;
+	Focusable focusedItem;
+	FocusType itemFocusType = FocusType.NONE;
 	Point lastMousePosition;
 	UIMode currentMode = UIMode.PRE_GAME;
 	LocalPlayer localPlayer;
@@ -177,7 +179,7 @@ bool initialize(out Window window, out Renderer renderer) @system
 		SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, 1);
 		SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, 16);
 
-		SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "best");
+		SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "linear");
 	}
 	catch (DerelictException e) {
 		logFatalException(e, "Failed to load the SDL2 shared library");
@@ -230,8 +232,6 @@ void run() @system
 
 void load(ref Renderer renderer)
 {
-	localPlayer.setGrid( new ClickablePlayerGrid(Point(586, 320)) );
-
 	nameFont = openFont("assets/Metropolis-SemiBold.ttf", 74);
 	largeFont = openFont("assets/Metropolis-ExtraBold.ttf", 84);
 	uiFont = openFont("assets/Metropolis-ExtraBold.ttf", 48);
@@ -243,6 +243,13 @@ void load(ref Renderer renderer)
 	cancelButton = new Button(cancel_button_dims.x, cancel_button_dims.y, cancel_button_dims.w, cancel_button_dims.h,
 	                          "Cancel", uiFont, renderer);
 	cancelButton.visible = false;
+
+	auto clickableGrid = new ClickablePlayerGrid(Point(586, 320));
+	clickableGrid.setFocusables(drawPile, discardPile, cancelButton);
+	localPlayer.setGrid(clickableGrid);
+
+	cancelButton.nextTab = clickableGrid;
+	cancelButton.nextDown = clickableGrid;
 
 	lastTurnLabel1 = new Label("Last", largeFont);
 	lastTurnLabel1.setPosition(960, 135, HorizontalPositionMode.CENTER, VerticalPositionMode.BOTTOM);
@@ -478,16 +485,30 @@ void pollInputEvents(ref bool quit, ref KeyboardController controller)
 			quit = true;
 			break;
 		}
-		// If the event is a keyboard event:
-		else if (e.type == SDL_KEYDOWN || e.type == SDL_KEYUP)
+		else if (e.type == SDL_KEYDOWN)
 		{
-			controller.handleEvent(e.key); // e.key is SDL_KeyboardEvent field in SDL_Event
+			if ((e.key.keysym.scancode == SDL_SCANCODE_LEFT || e.key.keysym.scancode == SDL_SCANCODE_RIGHT
+			    || e.key.keysym.scancode == SDL_SCANCODE_UP || e.key.keysym.scancode == SDL_SCANCODE_DOWN
+			    || e.key.keysym.scancode == SDL_SCANCODE_TAB) && ! e.key.repeat)
+			{
+				focusKeyPress(e.key.keysym.scancode);
+			}
+			else if ((e.key.keysym.scancode == SDL_SCANCODE_SPACE || e.key.keysym.scancode == SDL_SCANCODE_RETURN
+			         || e.key.keysym.scancode == SDL_SCANCODE_KP_ENTER) && ! e.key.repeat)
+			{
+				focusActivate();
+			}
+			else
+			{
+				controller.handleEvent(e.key); // e.key is SDL_KeyboardEvent field in SDL_Event
+			}
 		}
 		else if (e.type == SDL_MOUSEMOTION)
 		{
 			lastMousePosition.x = e.motion.x;
 			lastMousePosition.y = e.motion.y;
 
+			focusMouseMoved();
 			notifyObservers!"mouseMotion"(e.motion);
 		}
 		else if (e.type == SDL_MOUSEBUTTONDOWN && e.button.button == SDL_BUTTON_LEFT)
@@ -503,6 +524,94 @@ void pollInputEvents(ref bool quit, ref KeyboardController controller)
 			}
 		}
 	}
+}
+
+void focusKeyPress(SDL_Scancode code)
+{
+	if (focusedItem is null)
+	{
+		auto pgrid = localPlayer.getGrid;
+
+		if ( ! pgrid.focusEnabled() ) {
+			return;
+		}
+
+		focusedItem = pgrid;
+		focusedItem.receiveFocus();
+		setFocusType(FocusType.STRONG);
+	}
+	else
+	{
+		Focusable previous = focusedItem;
+
+		switch (code)
+		{
+		case SDL_SCANCODE_TAB:
+			focusedItem = focusedItem.nextTab();
+			break;
+		case SDL_SCANCODE_LEFT:
+			focusedItem = focusedItem.nextLeft();
+			break;
+		case SDL_SCANCODE_UP:
+			focusedItem = focusedItem.nextUp();
+			break;
+		case SDL_SCANCODE_RIGHT:
+			focusedItem = focusedItem.nextRight();
+			break;
+		case SDL_SCANCODE_DOWN:
+			focusedItem = focusedItem.nextDown();
+			break;
+		default:
+			assert(0);
+		}
+		assert(focusedItem.focusEnabled);
+
+		if (previous !is focusedItem) {
+			previous.loseFocus();
+		}
+
+		if (code == SDL_SCANCODE_TAB) {
+			focusedItem.receiveFocus();
+		}
+		else {
+			focusedItem.receiveFocusFrom(previous);
+		}
+		setFocusType(FocusType.STRONG);
+	}
+}
+
+void focusActivate()
+{
+	if (itemFocusType == FocusType.STRONG) {
+		focusedItem.activate();
+	}
+}
+
+void focusMouseMoved()
+{
+	if (focusedItem !is null) {
+		focusedItem.cursorMoved();
+	}
+
+	if (itemFocusType == FocusType.STRONG) {
+		setFocusType(FocusType.WEAK);
+	}
+}
+
+void focusReset()
+{
+	if (focusedItem !is null) {
+		focusedItem.loseFocus();
+		focusedItem = null;
+	}
+	setFocusType(FocusType.NONE);
+}
+
+void setFocusType(FocusType type)
+{
+	itemFocusType = type;
+	localPlayer.getGrid.windowFocusNotify(type);
+	cancelButton.windowFocusNotify(type);
 }
 
 mixin Observable!("mouseMotion", SDL_MouseMotionEvent);
@@ -633,6 +742,7 @@ void handleMessage(ServerMessage message)
 void enterNoActionMode(UIMode mode = UIMode.NO_ACTION)
 {
 	currentMode = mode;
+	focusReset();
 	localPlayer.getGrid.onClick = (a, b) {};
 	drawPile.enabled = false;
 	drawPile.onClick = {};
@@ -1263,7 +1373,8 @@ abstract class ClickableCardPile : Clickable
 	void render(ref Renderer renderer, const bool windowHasFocus)
 	{
 		getShownCard().ifPresent!( c => c.draw(renderer, position, card_large_width, card_large_height,
-			windowHasFocus && shouldBeHighlighted() ? highlightMode() : unhoveredHighlightMode()) );
+			windowHasFocus && itemFocusType != FocusType.STRONG && shouldBeHighlighted() ?
+			highlightMode() : unhoveredHighlightMode()) );
 	}
 
 	mixin MouseUpActivation;
@@ -1285,7 +1396,8 @@ abstract class DraggableCardPile : ClickableCardPile
 	override void render(ref Renderer renderer, const bool windowHasFocus)
 	{
 		auto drawPosition = position;
-		Card.Highlight mode = windowHasFocus && shouldBeHighlighted() ? highlightMode() : unhoveredHighlightMode();
+		Card.Highlight mode = windowHasFocus && itemFocusType != FocusType.STRONG
+				&& shouldBeHighlighted() ? highlightMode() : unhoveredHighlightMode();
 
 		if ( isBeingDragged() || (isDropped() && numberOfAnimations == 0) ) {
 			drawPosition = drawPosition.offset( positionAdjustment()[] );
@@ -1298,14 +1410,15 @@ abstract class DraggableCardPile : ClickableCardPile
 	}
 }
 
-final class DiscardPile : DraggableCardPile, DragAndDropTarget
+final class DiscardPile : DraggableCardPile, DragAndDropTarget, Focusable
 {
+	mixin BasicFocusable;
+
 	private void delegate() dropHandler;
 
 	this(Point position)
 	{
 		super(position);
-		//this.position = position;
 	}
 
 	void onDrop(void delegate() @safe handler) @property pure nothrow @nogc
@@ -1346,6 +1459,20 @@ final class DiscardPile : DraggableCardPile, DragAndDropTarget
 
 	override Card.Highlight unhoveredHighlightMode()
 	{
+		if (focusType == FocusType.STRONG)
+		{
+			if (currentMode == UIMode.DRAWN_CARD_ACTION) {
+				return Card.Highlight.PLACE;
+			}
+			else {
+				return Card.Highlight.HAS_FOCUS;
+			}
+		}
+		else if (focusType == FocusType.WEAK)
+		{
+			return Card.Highlight.HAS_FOCUS_MOUSE_MOVED;
+		}
+
 		if (currentMode == UIMode.SWAP_CARD_ACTION) {
 			return Card.Highlight.PLACE;
 		}
@@ -1363,14 +1490,59 @@ final class DiscardPile : DraggableCardPile, DragAndDropTarget
 	{
 		dropHandler();
 	}
+
+	override Focusable nextUp()
+	{
+		return this;
+	}
+
+	override Focusable nextDown()
+	{
+		focusType = FocusType.NONE;
+		return localPlayer.getGrid;
+	}
+
+	override Focusable nextLeft()
+	{
+		if ( drawPile.focusEnabled() ) {
+			focusType = FocusType.NONE;
+			return drawPile;
+		}
+		else {
+			return this;
+		}
+	}
+
+	override Focusable nextRight()
+	{
+		if ( cancelButton.focusEnabled() ) {
+			focusType = FocusType.NONE;
+			return cancelButton;
+		}
+		else {
+			return this;
+		}
+	}
+
+	override Focusable nextTab()
+	{
+		focusType = FocusType.NONE;
+		return localPlayer.getGrid;
+	}
+
+	override bool focusEnabled()
+	{
+		return this.enabled && (currentMode == UIMode.DRAWN_CARD_ACTION || currentMode == UIMode.MY_TURN_ACTION);
+	}
 }
 
-final class DrawPile : ClickableCardPile
+final class DrawPile : ClickableCardPile, Focusable
 {
+	mixin BasicFocusable;
+
 	this(Point position)
 	{
 		super(position);
-		//this.position = position;
 	}
 
 	override Nullable!(const Card) getShownCard() const
@@ -1390,7 +1562,53 @@ final class DrawPile : ClickableCardPile
 
 	override Card.Highlight unhoveredHighlightMode()
 	{
-		return Card.Highlight.OFF;
+		if (focusType == FocusType.STRONG)
+			return Card.Highlight.HAS_FOCUS;
+		else if (focusType == FocusType.WEAK)
+			return Card.Highlight.HAS_FOCUS_MOUSE_MOVED;
+		else
+			return Card.Highlight.OFF;
+	}
+
+	override Focusable nextUp()
+	{
+		return this;
+	}
+
+	override Focusable nextDown()
+	{
+		focusType = FocusType.NONE;
+		return localPlayer.getGrid;
+	}
+
+	override Focusable nextLeft()
+	{
+		return this;
+	}
+
+	override Focusable nextRight()
+	{
+		if ( discardPile.focusEnabled() ) {
+			focusType = FocusType.NONE;
+			return discardPile;
+		}
+		else if ( cancelButton.focusEnabled() ) {
+			focusType = FocusType.NONE;
+			return cancelButton;
+		}
+		else {
+			return this;
+		}
+	}
+
+	override Focusable nextTab()
+	{
+		return nextRight();
+	}
+
+	override bool focusEnabled()
+	{
+		return this.enabled();
 	}
 }
 
@@ -1401,7 +1619,6 @@ final class DrawnCard : DraggableCardPile
 	this(Point position)
 	{
 		super(position);
-		//this.position = position;
 	}
 
 	override Nullable!(const Card) getShownCard() const
