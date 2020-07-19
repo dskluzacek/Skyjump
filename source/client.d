@@ -1,4 +1,4 @@
-module skyjo;
+module client;
 @safe:
 
 import std.stdio;
@@ -39,7 +39,7 @@ import button;
 import draganddrop;
 import textfield;
 
-enum window_title = "Skyjo";
+enum window_title = "Skyjump";
 enum version_str  = "pre-alpha";
 
 enum connect_failed_str = "Failed to connect to server.";
@@ -166,7 +166,7 @@ void main() @system
 
 	if ( DerelictSDL2.isLoaded() )
 	{
-		showErrorDialog("An error occurred and Skyjo is closing.");
+		showErrorDialog("An error occurred and Skyjump is closing.");
 	}
 }
 
@@ -1873,7 +1873,7 @@ final class DrawnCard : DraggableCardPile
 
 void showErrorDialog(string userMessage) @trusted nothrow
 {
-	SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Skyjo - Error", userMessage.toStringz, null);
+	SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Skyjump - Error", userMessage.toStringz, null);
 }
 
 void showErrorDialog(Exception exc, string userMessage, Flag!"logToFile" log = No.logToFile) nothrow
@@ -1899,7 +1899,7 @@ void logFatalException(Throwable exc, string userMessage) @trusted nothrow
 		import std.system : os;
 
 		auto file = File("crash-report.txt", "w");
-		file.writeln("Skyjo crash report\n---\n", Clock.currTime());
+		file.writeln("Skyjump crash report\n---\n", Clock.currTime());
 		file.writeln(version_str, " (", os, ")\n\n");
 		file.writeln(userMessage, "\n---\n", exc);
 	}
