@@ -3,6 +3,7 @@ module skyjo;
 
 import std.stdio;
 import std.algorithm;
+import std.string : strip;
 import std.exception : enforce;
 import std.array;
 import std.typecons;
@@ -36,9 +37,12 @@ import util;
 import label;
 import button;
 import draganddrop;
+import textfield;
 
 enum window_title = "Skyjo";
 enum version_str  = "pre-alpha";
+
+enum connect_failed_str = "Failed to connect to server.";
 
 enum draw_pile_position = Point(692, 15);
 enum discard_pile_position = Point(1056, 15);
@@ -52,9 +56,15 @@ enum drawn_card_rect = Rectangle(drawn_card_position.x, drawn_card_position.y,
                                  card_large_width, card_large_height);
 
 enum cancel_button_dims = Rectangle(1248, 215, 120, 40);
+enum connect_button_dims = Rectangle(880, 620, 160, 40);
+
+enum name_field_dims = Rectangle(777, 490, 550, 50);
+enum server_field_dims = Rectangle(777, 550, 550, 50);
 
 enum total_audio_channels        = 8,
      num_reserved_audio_channels = 3;
+
+enum connect_timeout = 12.seconds;
 
 enum anim_duration = 285.msecs;
 enum dragged_anim_speed = 0.728f;  // pixels per ms
@@ -78,7 +88,10 @@ private
 	ConnectionToServer connection;
 	Font nameFont;
 	Font largeFont;
+	Font mediumFont;
+	Font smallFont;
 	Font uiFont;
+	Font textFieldFont;
 	Texture disconnectedIcon;
 	Sound dealSound;
 	Sound flipSound;
@@ -86,25 +99,35 @@ private
 	Sound drawSound;
 	Sound yourTurnSound;
 	Sound lastTurnSound;
+	SDL_Cursor* arrowCursor;
+	SDL_Cursor* iBeamCursor;
 	OpponentGrid[] opponentGrids;
 	Background gameBackground;
 	DrawPile drawPile;
 	DiscardPile discardPile;
 	DrawnCard drawnCard;
 	Button cancelButton;
+	Button connectButton;
 	Card opponentDrawnCard;
 	Rectangle opponentDrawnCardRect;
 	Label lastTurnLabel1;
 	Label lastTurnLabel2;
+	Label serverFieldLabel;
+	Label nameFieldLabel;
+	Label feedbackLabel;
 	MoveAnimation moveAnim;
 	DealAnimation dealAnim;
 	DList!(void delegate()) pendingActions;
 	MonoTime yourTurnSoundTimerStart;
 	MonoTime lastTurnSoundTimerStart;
+	MonoTime connectAttemptTimerStart;
+	TextComponent[] textComponents;
+	TextField nameTextField;
+	TextField serverTextField;
 	Focusable focusedItem;
 	FocusType itemFocusType = FocusType.NONE;
 	Point lastMousePosition;
-	UIMode currentMode = UIMode.PRE_GAME;
+	UIMode currentMode = UIMode.CONNECT;
 	LocalPlayer localPlayer;
 	PlayerLabel localPlayerLabel;
 	ubyte localPlayerNumber;
@@ -114,6 +137,7 @@ private
 
 enum UIMode
 {
+	CONNECT,
 	PRE_GAME,
 	DEALING,
 	NO_ACTION,
@@ -125,21 +149,9 @@ enum UIMode
 	WAITING
 }
 
-void main(string[] args) @system
+void main() @system
 {
-	string name = "David";
-
 	try {
-		if (args.length >= 2) {
-			name = args[1];
-
-			if (name.length > MAX_NAME_LENGTH) {
-				name = name[0 .. MAX_NAME_LENGTH];
-			}
-		}
-		writeln();
-
-		localPlayer = new LocalPlayer(name);
 		run();
 		return;
 	}
@@ -232,16 +244,19 @@ void run() @system
 
 void load(ref Renderer renderer)
 {
-	nameFont = openFont("assets/Metropolis-SemiBold.ttf", 74);
-	largeFont = openFont("assets/Metropolis-ExtraBold.ttf", 84);
-	uiFont = openFont("assets/Metropolis-ExtraBold.ttf", 48);
+	uiFont = openFont("assets/Metropolis-ExtraBold.ttf", 26);
+	largeFont = openFont("assets/Metropolis-ExtraBold.ttf", 42);
+	mediumFont = openFont("assets/Metropolis-Medium.ttf", 32);
+	smallFont = openFont("assets/Metropolis-Medium.ttf", 24);
+	nameFont = openFont("assets/Metropolis-SemiBold.ttf", 37);
+	textFieldFont = openFont("assets/RobotoCondensed-Regular.ttf", 36);
+
+	localPlayer = new LocalPlayer();
 
 	localPlayerLabel = new PlayerLabel(Point(1354, 1060), HorizontalPositionMode.LEFT,
 	                                   VerticalPositionMode.BOTTOM, nameFont, renderer);
-	localPlayerLabel.setPlayer(localPlayer);
 
-	cancelButton = new Button(cancel_button_dims.x, cancel_button_dims.y, cancel_button_dims.w, cancel_button_dims.h,
-	                          "Cancel", uiFont, renderer);
+	cancelButton = new Button(cancel_button_dims, "Cancel", uiFont, renderer);
 	cancelButton.visible = false;
 
 	auto clickableGrid = new ClickablePlayerGrid(Point(586, 320));
@@ -250,6 +265,43 @@ void load(ref Renderer renderer)
 
 	cancelButton.nextTab = clickableGrid;
 	cancelButton.nextDown = clickableGrid;
+
+	arrowCursor = createCursor(SDL_SYSTEM_CURSOR_ARROW);
+	iBeamCursor = createCursor(SDL_SYSTEM_CURSOR_IBEAM);
+
+	nameTextField = new TextField(textFieldFont, name_field_dims, 4, arrowCursor, iBeamCursor);
+	nameTextField.maxTextLength = MAX_NAME_LENGTH;
+	serverTextField = new TextField(textFieldFont, server_field_dims, 4, arrowCursor, iBeamCursor);
+	serverTextField.maxTextLength = 20;
+	serverTextField.setText("localhost", renderer);
+	textComponents = [nameTextField, serverTextField];
+
+	connectButton = new Button(connect_button_dims, "Connect", uiFont, renderer);
+	connectButton.enabled = true;
+
+	nameTextField.nextDown = serverTextField;
+	nameTextField.nextTab = serverTextField;
+	serverTextField.nextUp = nameTextField;
+	serverTextField.nextDown = connectButton;
+	serverTextField.nextTab = connectButton;
+	connectButton.nextUp = serverTextField;
+	connectButton.nextTab = nameTextField;
+
+	feedbackLabel = new Label("", smallFont);
+	() @trusted { feedbackLabel.setRenderer(&renderer); } ();
+	feedbackLabel.autoReRender = true;
+	feedbackLabel.enableAutoPosition(960, connect_button_dims.y + connect_button_dims.h + 50,
+	                                 HorizontalPositionMode.CENTER, VerticalPositionMode.TOP);
+
+	nameFieldLabel = new Label("Your name: ", mediumFont);
+	nameFieldLabel.setPosition(name_field_dims.x, name_field_dims.y + name_field_dims.h / 2,
+	                           HorizontalPositionMode.RIGHT, VerticalPositionMode.CENTER);
+	nameFieldLabel.renderText(renderer);
+
+	serverFieldLabel = new Label("Server address: ", mediumFont);
+	serverFieldLabel.setPosition(server_field_dims.x, server_field_dims.y + server_field_dims.h / 2,
+	                             HorizontalPositionMode.RIGHT, VerticalPositionMode.CENTER);
+	serverFieldLabel.renderText(renderer);
 
 	lastTurnLabel1 = new Label("Last", largeFont);
 	lastTurnLabel1.setPosition(960, 135, HorizontalPositionMode.CENTER, VerticalPositionMode.BOTTOM);
@@ -270,22 +322,22 @@ void load(ref Renderer renderer)
 
 	disconnectedIcon = renderer.loadTexture("assets/network-x.png");
 
-	Card.setTexture( CardRank.NEGATIVE_TWO, renderer.loadTexture("assets/-2.png") );
-	Card.setTexture( CardRank.NEGATIVE_ONE, renderer.loadTexture("assets/-1.png") );
-	Card.setTexture( CardRank.ZERO, renderer.loadTexture("assets/0.png") );
-	Card.setTexture( CardRank.ONE, renderer.loadTexture("assets/1.png") );
-	Card.setTexture( CardRank.TWO, renderer.loadTexture("assets/2.png") );
-	Card.setTexture( CardRank.THREE, renderer.loadTexture("assets/3.png") );
-	Card.setTexture( CardRank.FOUR, renderer.loadTexture("assets/4.png") );
-	Card.setTexture( CardRank.FIVE, renderer.loadTexture("assets/5.png") );
-	Card.setTexture( CardRank.SIX, renderer.loadTexture("assets/6.png") );
-	Card.setTexture( CardRank.SEVEN, renderer.loadTexture("assets/7.png") );
-	Card.setTexture( CardRank.EIGHT, renderer.loadTexture("assets/8.png") );
-	Card.setTexture( CardRank.NINE, renderer.loadTexture("assets/9.png") );
-	Card.setTexture( CardRank.TEN, renderer.loadTexture("assets/10.png") );
-	Card.setTexture( CardRank.ELEVEN, renderer.loadTexture("assets/11.png") );
-	Card.setTexture( CardRank.TWELVE, renderer.loadTexture("assets/12.png") );
-	Card.setTexture( CardRank.UNKNOWN, renderer.loadTexture("assets/back-grad.png") );
+	Card.setTexture(CardRank.NEGATIVE_TWO, renderer.loadTexture("assets/-2.png") );
+	Card.setTexture(CardRank.NEGATIVE_ONE, renderer.loadTexture("assets/-1.png") );
+	Card.setTexture(CardRank.ZERO, renderer.loadTexture("assets/0.png") );
+	Card.setTexture(CardRank.ONE, renderer.loadTexture("assets/1.png") );
+	Card.setTexture(CardRank.TWO, renderer.loadTexture("assets/2.png") );
+	Card.setTexture(CardRank.THREE, renderer.loadTexture("assets/3.png") );
+	Card.setTexture(CardRank.FOUR, renderer.loadTexture("assets/4.png") );
+	Card.setTexture(CardRank.FIVE, renderer.loadTexture("assets/5.png") );
+	Card.setTexture(CardRank.SIX, renderer.loadTexture("assets/6.png") );
+	Card.setTexture(CardRank.SEVEN, renderer.loadTexture("assets/7.png") );
+	Card.setTexture(CardRank.EIGHT, renderer.loadTexture("assets/8.png") );
+	Card.setTexture(CardRank.NINE, renderer.loadTexture("assets/9.png") );
+	Card.setTexture(CardRank.TEN, renderer.loadTexture("assets/10.png") );
+	Card.setTexture(CardRank.ELEVEN, renderer.loadTexture("assets/11.png") );
+	Card.setTexture(CardRank.TWELVE, renderer.loadTexture("assets/12.png") );
+	Card.setTexture(CardRank.UNKNOWN, renderer.loadTexture("assets/back-grad.png") );
 
 	dealSound = loadWAV("assets/playcard.wav");
 	flipSound = loadWAV("assets/cardPlace3.wav");
@@ -295,26 +347,31 @@ void load(ref Renderer renderer)
 	lastTurnSound = loadWAV("assets/UI_007.wav");
 }
 
-void masterLoop( ref Window window,
-                 ref Renderer renderer,
-                 ref bool quit,
-                 ref KeyboardController controller )
+SDL_Cursor* createCursor(SDL_SystemCursor c) @trusted
 {
-	Socket socket = new TcpSocket();
-	socket.connect(new InternetAddress("localhost", 7684));
-	connection = new ConnectionToServer(socket);
-	connection.send(ClientMessageType.JOIN, localPlayer.getName);
-	socket.blocking = false;
+	return SDL_CreateSystemCursor(c);
+}
+
+
+
+void masterLoop(ref Window window,
+                ref Renderer renderer,
+                ref bool quit,
+                ref KeyboardController controller)
+{
+	connectButton.onClick = (&connect).asDelegate;
 
 	auto grid = localPlayer.getGrid();
+	grid.onClick = (int r, int c) {};
 
 	addClickable(grid);
 	addClickable(drawPile);
 	addClickable(discardPile);
 	addClickable(cancelButton);
+	addClickable(connectButton);
 	addClickable(drawnCard);
-
-	grid.onClick = (int r, int c) {};
+	addClickable(nameTextField);
+	addClickable(serverTextField);
 
 	mainLoop(window, renderer, quit, controller);
 }
@@ -340,8 +397,8 @@ void mainLoop(ref Window window,
 		elapsed = currentTime - lastTime;
 		lastTime = currentTime;
 
-		pollServer(connection);
-		pollInputEvents(quit, controller);
+		pollServer();
+		pollInputEvents(quit, controller, renderer);
 
 		if (currentMode == UIMode.DEALING)
 		{
@@ -405,6 +462,14 @@ void render(ref Window window, ref Renderer renderer)
 
 	cancelButton.draw(renderer);
 
+	nameFieldLabel.draw(renderer);
+	serverFieldLabel.draw(renderer);
+	connectButton.draw(renderer);
+	feedbackLabel.draw(renderer);
+
+	nameTextField.draw(renderer);
+	serverTextField.draw(renderer);
+
 	drawPile.render(renderer, windowHasFocus);
 	discardPile.render(renderer, windowHasFocus);
 	drawnCard.render(renderer, windowHasFocus);
@@ -454,21 +519,114 @@ void sleepFor(Duration d) @trusted @nogc
 	Thread.getThis().sleep(d);
 }
 
-void pollServer(ConnectionToServer connection)
+void connect()
 {
+	string name = nameTextField.getText();
+	string address = serverTextField.getText();
+
+	if ( name.strip() == "" ) {
+		feedbackLabel.setText("Name cannot be blank.");
+		return;
+	}
+	else if ( address.strip() == "" ) {
+		feedbackLabel.setText("Server address cannot be blank.");
+		return;
+	}
+
+	feedbackLabel.setText("");
+	localPlayer.setName(name);
+
+	Socket socket;
+
+	try {
+		auto addr = new InternetAddress(address, 7684);
+		socket = new TcpSocket();
+		socket.blocking = false;
+		socket.connect(addr);
+		connection = new ConnectionToServer(socket);
+		connectAttemptTimerStart = MonoTime.currTime();
+		connectButton.enabled = false;
+	}
+	catch (SocketException e) {
+		feedbackLabel.setText(connect_failed_str);
+
+		if (socket) {
+			socket.close();
+		}
+		connection = null;
+	}
+}
+
+void pollServer()
+{
+	void resetConnection()
+	{
+		connection.socket.close();
+		connection = null;
+
+		if (currentMode == UIMode.CONNECT) {
+			connectButton.enabled = true;
+		}
+		else {
+			enterConnectMode();
+		}
+	}
+
+	if (connection is null) {
+		return;
+	}
 	socketSet.reset();
 	socketSet.add(connection.socket);
-	Socket.select(socketSet, null, null, dur!"usecs"(100));
 
-	Nullable!ServerMessage message = connection.poll(socketSet);
+	if (connection.isConnected)
+	{
+		Nullable!ServerMessage message;
 
-	message.ifPresent!(handleMessage);
+		try {
+			Socket.select(socketSet, null, null, dur!"usecs"(100));
+			message = connection.poll(socketSet);
+
+			message.ifPresent!((message) {
+				if (currentMode == UIMode.CONNECT) {
+					leaveConnectMode();
+				}
+
+				handleMessage(message);
+			});
+		}
+		catch (JoinException e) {
+			feedbackLabel.setText(connect_failed_str);
+			resetConnection();
+		}
+		catch (SocketReadException e) {
+			feedbackLabel.setText("The connection to the server was lost.");
+			resetConnection();
+		}
+	}
+	else
+	{
+		Socket.select(null, socketSet, null, dur!"usecs"(100));
+		connection.checkConnected(socketSet);
+
+		if (connection.isConnected)
+		{
+			connection.send(ClientMessageType.JOIN, localPlayer.getName);
+		}
+	}
+	assert(connectAttemptTimerStart != MonoTime.init);
+
+	if (connection !is null && ! connection.isDataReceived
+	    && MonoTime.currTime() - connectAttemptTimerStart > connect_timeout)
+	{
+		feedbackLabel.setText(connect_failed_str);
+		resetConnection();
+	}
 }
 
 /**
  * Processes input events from the SDL event queue
  */
-void pollInputEvents(ref bool quit, ref KeyboardController controller)
+void pollInputEvents(ref bool quit, ref KeyboardController controller, ref Renderer renderer)
 {
 	@trusted auto poll(ref SDL_Event ev)
 	{
@@ -476,6 +634,7 @@ void pollInputEvents(ref bool quit, ref KeyboardController controller)
 	}
 
 	SDL_Event e;
+	auto textWidget = textComponents.filter!(a => a.acceptingTextInput);
 
 	while ( poll(e) )
 	{
@@ -485,11 +644,23 @@ void pollInputEvents(ref bool quit, ref KeyboardController controller)
 			quit = true;
 			break;
 		}
+		else if (e.type == SDL_TEXTINPUT)
+		{
+			if (! textWidget.empty)
+			{
+				textWidget.front.inputEvent(e.text, renderer);
+			}
+		}
 		else if (e.type == SDL_KEYDOWN)
 		{
+			if ( ! textWidget.empty && textWidget.front.keyboardEvent(e.key, renderer) )
+			{
+				continue;
+			}
+
 			if ((e.key.keysym.scancode == SDL_SCANCODE_LEFT || e.key.keysym.scancode == SDL_SCANCODE_RIGHT
 			    || e.key.keysym.scancode == SDL_SCANCODE_UP || e.key.keysym.scancode == SDL_SCANCODE_DOWN
-			    || e.key.keysym.scancode == SDL_SCANCODE_TAB) && ! e.key.repeat)
+			    || e.key.keysym.sym == SDLK_TAB) && ! e.key.repeat)
 			{
 				focusKeyPress(e.key.keysym.scancode);
 			}
@@ -530,13 +701,20 @@ void focusKeyPress(SDL_Scancode code)
 {
 	if (focusedItem is null)
 	{
-		auto pgrid = localPlayer.getGrid;
+		Focusable item;
 
-		if ( ! pgrid.focusEnabled() ) {
+		if (currentMode == UIMode.CONNECT) {
+			item = nameTextField;
+		}
+		else {
+			item = localPlayer.getGrid;
+		}
+
+		if ( ! item.focusEnabled() ) {
 			return;
 		}
 
-		focusedItem = pgrid;
+		focusedItem = item;
 		focusedItem.receiveFocus();
 		setFocusType(FocusType.STRONG);
 	}
@@ -612,6 +790,7 @@ void setFocusType(FocusType type)
 	itemFocusType = type;
 	localPlayer.getGrid.windowFocusNotify(type);
 	cancelButton.windowFocusNotify(type);
+	connectButton.windowFocusNotify(type);
 }
 
 mixin Observable!("mouseMotion", SDL_MouseMotionEvent);
@@ -737,6 +916,42 @@ void handleMessage(ServerMessage message)
 	case ServerMessageType.NEW_GAME:
 		break;
 	}
+}
+
+void leaveConnectMode(UIMode mode = UIMode.PRE_GAME)
+{
+	currentMode = mode;
+	focusReset();
+	localPlayerLabel.setPlayer(localPlayer);
+	nameTextField.visible = false;
+	nameFieldLabel.setVisible(false);
+	serverTextField.visible = false;
+	serverFieldLabel.setVisible(false);
+	connectButton.visible = false;
+	feedbackLabel.setVisible(false);
+}
+
+void enterConnectMode()
+{
+	enterNoActionMode(UIMode.CONNECT);
+
+	nameTextField.visible = true;
+	nameTextField.enabled = true;
+	nameFieldLabel.setVisible(true);
+	serverTextField.visible = true;
+	serverTextField.enabled = true;
+	serverFieldLabel.setVisible(true);
+	connectButton.visible = true;
+	connectButton.enabled = true;
+	feedbackLabel.setVisible(true);
+
+	model.reset();
+	writeln(model.numberOfPlayers);
+	writeln(model.getDiscardTopCard);
+
+	localPlayerLabel.clearPlayer();
+	opponentGrids.each!( g => g.clearPlayer() );
+	updateOppGridsEnabledStatus(0);
 }
 
 void enterNoActionMode(UIMode mode = UIMode.NO_ACTION)

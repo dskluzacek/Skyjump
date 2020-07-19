@@ -265,6 +265,8 @@ mixin template SendMessage(T)
 final class ConnectionToServer
 {
     private Socket _socket;
+    private bool connected;
+    private bool dataReceived;
 
     this(Socket sock)
     {
@@ -288,11 +290,17 @@ final class ConnectionToServer
             }
             else if (dataLength == 0)
             {
-                throw new SocketReadException("server closed connection", dataLength);
+                if (dataReceived) {
+                    throw new SocketReadException("server closed connection", dataLength);
+                }
+                else {
+                    throw new JoinException("no data could be read");
+                }
             }
             else
             {
                 write(buffer[0 .. dataLength]);
+                dataReceived = true;
                 return handleChars!(ServerMessage, parseServerMessage)(leftoverChars, buffer[0 .. dataLength].idup);
             }
         }
@@ -304,6 +312,24 @@ final class ConnectionToServer
         {
             return (Nullable!ServerMessage).init;
         }
+    }
+
+    void checkConnected(SocketSet socketSet)
+    {
+        if ( socketSet.isSet(_socket) )
+        {
+            connected = true;
+        }
+    }
+
+    bool isConnected()
+    {
+        return connected;
+    }
+
+    bool isDataReceived()
+    {
+        return dataReceived;
     }
 
     Socket socket()
@@ -325,6 +351,14 @@ final class SocketReadException : Exception
     ptrdiff_t getResult()
     {
         return result;
+    }
+}
+
+final class JoinException : Exception
+{
+    this(string message, string file = __FILE__, size_t line = __LINE__) pure nothrow
+    {
+        super(message, file, line);
     }
 }
 

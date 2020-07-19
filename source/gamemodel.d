@@ -176,6 +176,11 @@ struct GameModel
         return playerOut;
     }
 
+    int getHandNumber() pure nothrow
+    {
+        return handNumber;
+    }
+
     void nextHand()
     {
         ++handNumber;
@@ -187,9 +192,15 @@ struct GameModel
         }
     }
 
-    int getHandNumber() pure nothrow
+    void reset() @trusted
     {
-        return handNumber;
+        discardPile = new DiscardStack();
+        playerOut = (Nullable!ubyte).init;
+        playerCurrentTurn = ubyte.init;
+        handNumber = 1;
+        players.clear;
+
+        assert(numberOfPlayers() == 0);
     }
 }
 

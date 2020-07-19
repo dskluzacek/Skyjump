@@ -252,7 +252,10 @@ body
         }
         client.currentScores(model);
         model.getDiscardTopCard().ifPresent!( c => client.send(ServerMessageType.DISCARD_CARD, cast(int) c.rank) );
-        model.getPlayerOut().ifPresent!( a => client.lastTurn(a) );
+        model.getPlayerOut().ifPresent!((a) {
+            if (model.getState != GameState.BETWEEN_HANDS)
+                client.lastTurn(a);
+        });
 
         disconnectedPlayers = disconnectedPlayers.remove!( a => a is player );
 
@@ -303,7 +306,7 @@ void sendReconnectStateInfo(ConnectedClient client)
         else
         {
             if (disconnectedPlayers.length > 0) {
-                client.changeTurn( model.getCurrentPlayerTurn);
+                client.changeTurn(model.getCurrentPlayerTurn);
             }
             model.getDrawnCard().ifPresent!((c) {
                 client.drawpile(model.getCurrentPlayerTurn);

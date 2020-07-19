@@ -304,4 +304,68 @@ mixin template BasicFocusable()
 		mouseDown = false;
 		beingClicked = false;
 	}
+
 }
+
+mixin template ConfigFocusable()
+{
+	private
+	{
+		Focusable above;
+		Focusable below;
+		Focusable left;
+		Focusable right;
+		Focusable tabNext;
+	}
+
+	void nextUp(Focusable f) @property pure nothrow @nogc
+	{
+		above = f;
+	}
+
+	void nextDown(Focusable f) @property pure nothrow @nogc
+	{
+		below = f;
+	}
+
+	void nextLeft(Focusable f) @property pure nothrow @nogc
+	{
+		left = f;
+	}
+
+	void nextRight(Focusable f) @property pure nothrow @nogc
+	{
+		right = f;
+	}
+
+	void nextTab(Focusable f) @property pure nothrow @nogc
+	{
+		tabNext = f;
+	}
+
+	Focusable nextUp() @property
+	{
+		return above !is null ? above : this;
+	}
+
+	Focusable nextDown() @property
+	{
+		return below !is null ? below : this;
+	}
+
+	Focusable nextLeft() @property
+	{
+		return left !is null ? left : this;
+	}
+
+	Focusable nextRight() @property
+	{
+		return right !is null ? right : this;
+	}
+
+	Focusable nextTab() @property
+	{
+		return tabNext !is null ? tabNext : this;
+	}
+}
+

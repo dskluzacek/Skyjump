@@ -12,17 +12,13 @@ import card : pale_indigo, highlight_yellow;
 class Button : Clickable, Focusable
 {
     mixin MouseUpActivation;
-    mixin BasicFocusable;   
+    mixin BasicFocusable;
+    mixin ConfigFocusable;
 
     private
     {
         Label label;
         bool isVisible = true;
-        Focusable above;
-        Focusable below;
-        Focusable left;
-        Focusable right;
-        Focusable tabNext;
     }
 
     this(int x, int y, int width, int height, string text, Font font, ref Renderer renderer)
@@ -34,6 +30,11 @@ class Button : Clickable, Focusable
         label.enableAutoPosition(x + width / 2, y + 2 + height / 2,
                                  HorizontalPositionMode.CENTER, VerticalPositionMode.CENTER);
         label.autoReRender = true;
+    }
+
+    this(Rectangle dimensions, string text, Font font, ref Renderer renderer)
+    {
+        this(dimensions.x, dimensions.y, dimensions.w, dimensions.h, text, font, renderer);
     }
 
     void setText(string str)
@@ -74,58 +75,8 @@ class Button : Clickable, Focusable
         label.draw(renderer);
     }
 
-    override Focusable nextUp() @property
-    {
-        return above !is null ? above : this;
-    }
-
-    override Focusable nextDown() @property
-    {
-        return below !is null ? below : this;
-    }
-
-    override Focusable nextLeft() @property
-    {
-        return left !is null ? left : this;
-    }
-
-    override Focusable nextRight() @property
-    {
-        return right !is null ? right : this;
-    }
-
-    override Focusable nextTab() @property
-    {
-        return tabNext !is null ? tabNext : this;
-    }
-
     override bool focusEnabled()
     {
         return this.enabled();
-    }
-
-    void nextUp(Focusable f) @property pure nothrow @nogc
-    {
-        above = f;
-    }
-
-    void nextDown(Focusable f) @property pure nothrow @nogc
-    {
-        below = f;
-    }
-
-    void nextLeft(Focusable f) @property pure nothrow @nogc
-    {
-        left = f;
-    }
-
-    void nextRight(Focusable f) @property pure nothrow @nogc
-    {
-        right = f;
-    }
-
-    void nextTab(Focusable f) @property pure nothrow @nogc
-    {
-        tabNext = f;
     }
 }

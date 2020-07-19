@@ -116,10 +116,10 @@ final class Label
             position.x = x;
             break;
         case HorizontalPositionMode.RIGHT:
-            position.x = x - width / 2;
+            position.x = x - width;
             break;
         case HorizontalPositionMode.CENTER:
-            position.x = x - width / 4;
+            position.x = x - width / 2;
             break;
         }
 
@@ -129,10 +129,10 @@ final class Label
             position.y = y;
             break;
         case VerticalPositionMode.BOTTOM:
-            position.y = y - height / 2;
+            position.y = y - height;
             break;
         case VerticalPositionMode.CENTER:
-            position.y = y - height / 4;
+            position.y = y - height / 2;
             break;
         }
     }
@@ -182,7 +182,7 @@ final class Label
     {
         if (visible && ! renderedText.isNull)
         {
-            rndr.renderCopy(renderedText, position.x, position.y, renderedText.width / 2, renderedText.height / 2);
+            rndr.renderCopy(renderedText, position.x, position.y);
         }
     }
 
