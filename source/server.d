@@ -3,7 +3,9 @@ module server;
 
 import std.stdio;
 import std.algorithm : each, remove, all, count;
-import std.string : strip;
+import std.conv;
+import std.uni : toLower;
+import std.array : split;
 import std.concurrency;
 import std.socket;
 import std.typecons;
@@ -45,15 +47,21 @@ void main() @system
 
     write("\n$ ");
     consoleThread = spawn(&consoleReader, thisTid);
+    bool quit;
 
-    for (;;)
+    while (! quit)
     {
         pollSockets();
 
         receiveTimeout(0.usecs, (string command) {
-            command = command.strip();
+            auto args = command.split();
 
-            if (command == "start")
+            if (args.length < 1)
+            {
+                write("$ ");
+                stdout.flush();
+            }
+            else if (args[0] == "start")
             {
                 if (model.numberOfPlayers() < 2)
                 {
@@ -73,7 +81,7 @@ void main() @system
                     stdout.flush();
                 }
             }
-            else if (command == "next")
+            else if (args[0] == "next")
             {
                 if (model.getState != GameState.BETWEEN_HANDS)
                 {
@@ -94,14 +102,46 @@ void main() @system
                     stdout.flush();
                 }
             }
-            else if (command.length > 0)
+            else if (args[0] == "list")
             {
-                writeMsg("Command not recognized");
+                listPlayers();
             }
+            else if (args[0] == "drop")
+            {
+                if (args.length >= 2) {
+                    try {
+                        dropPlayer(args[1].to!int);
+                    }
+                    catch (ConvException e) {
+                        writeMsg("Invalid number");
+                    }
+                }
+                else {
+                    writeMsg("Need player number");
+                }
+            }
+            else if (args[0] == "kick")
+            {
+                if (args.length >= 2)
+                {
+                    try {
+                        kickPlayer(args[1].to!int);
+                    }
+                    catch (ConvException e) {
+                        writeMsg("Invalid number");
+                    }
+                }
+                else {
+                    writeMsg("Need player number");
+                }
+            }
+            //else if (args[0] == "quit")
+            //{
+            //    assert(0);
+            //}
             else
             {
-                write("$ ");
-                stdout.flush();
+                writeMsg("Command not recognized");
             }
         });
     }
@@ -116,6 +156,14 @@ void consoleReader(Tid ownerTid) @trusted
     {
         readLength = readln(buffer);
         ownerTid.send(buffer.idup);
+
+        //Thread.sleep(1.msecs);
+
+        //receiveTimeout(0.msecs,
+        //(OwnerTerminated o) {
+        //    assert(0);
+        //}
+        //);
     }
     while (readLength > 0);
 }
@@ -125,6 +173,77 @@ void writeMsg(T...)(T args) @trusted
     writeln(args);
     write("$ ");
     stdout.flush();
+}
+
+void listPlayers()
+{
+    writeln("Connected players:");
+
+    foreach (client; clients)
+    {
+        Player p = client.player;
+        writeln(model.playerNumberOf(p), " - ", p.getName);
+    }
+
+    writeln("\nDisconnected players:");
+
+    foreach (p; disconnectedPlayers)
+    {
+        writeln(model.playerNumberOf(p), " - ", p.getName);
+    }
+    writeMsg("");
+}
+
+void dropPlayer(int number)
+{
+    if (model.numberOfPlayers < 3) {
+        writeMsg("Can't drop a player - not enough players would remain");
+        return;
+    }
+
+    foreach (client; clients)
+    {
+        if (model.playerNumberOf(client.player) == number)
+        {
+            closeAndWaitForReconnect(client);
+            return;
+        }
+    }
+    writeMsg("No connected players with that number");
+}
+
+void kickPlayer(int number)
+{
+    if (model.numberOfPlayers < 3) {
+        writeMsg("Can't kick a player - not enough players would remain");
+        return;
+    }
+
+    foreach (client; clients)
+    {
+        if (model.playerNumberOf(client.player) == number)
+        {
+            client.send(ServerMessageType.KICKED);
+            playerLeave(client);
+            return;
+        }
+    }
+
+    foreach (player; disconnectedPlayers)
+    {
+        if (model.playerNumberOf(player) == number)
+        {
+            model.playerLeft(player);
+            disconnectedPlayers = disconnectedPlayers.remove!( a => a is player );
+
+            if (disconnectedPlayers.length == 0) {
+                model.allPlayersReconnected();
+            }
+            writeMsg("Removed disconnected player");
+            return;
+        }
+    }
+    writeMsg("No players with that number");
 }
 
 void handleMessage(ClientMessage message, ConnectedClient client)
@@ -162,7 +281,9 @@ void playerJoin(ConnectedClient client, string name)
 {
     if (disconnectedPlayers.length == 1)
     {
-        playerReconnect(client, disconnectedPlayers[0], name);
+        if ( ! checkIfNameTaken(name, client) ) {
+            playerReconnect(client, disconnectedPlayers[0], name);
+        }
         return;
     }
     else if (disconnectedPlayers.length > 1)
@@ -192,7 +313,7 @@ void playerJoin(ConnectedClient client, string name)
             client.send(ServerMessageType.FULL);
             closeConnection(client);
         }
-        else
+        else if ( ! checkIfNameTaken(name, client) )
         {
             playerAdd(client, name);
         }
@@ -202,6 +323,23 @@ void playerJoin(ConnectedClient client, string name)
         // error (join allowed only once)
         closeAndWaitForReconnect(client);
     }
+}
+
+bool checkIfNameTaken(string name, ConnectedClient joining)
+{
+    name = name.toLower;
+
+    foreach (client; clients)
+    {
+        if (! client.waitingForJoin && client.player.getName.toLower == name)
+        {
+            joining.send(ServerMessageType.NAME_TAKEN);
+            joining.closeConnection;
+            return true;
+        }
+    }
+
+    return false;
 }
 
 void playerAdd(ConnectedClient client, string name)
@@ -280,7 +418,6 @@ body
 void sendReconnectStateInfo(ConnectedClient client)
 {
     GameState state = model.getState();
-    writeMsg("\n", state);
 
     final switch (state)
     {
@@ -447,14 +584,44 @@ void playerLeave(ConnectedClient client)
     }
     else
     {
+        auto p = client.player;
+        auto playerNumber = model.playerNumberOf(p).to!string;
+
         model.removeObserver(client);
-        model.playerLeft(client.player);
+        model.playerLeft(p);
         closeConnection(client);
+
+        if (model.getState != GameState.NOT_STARTED && model.numberOfPlayers < 2)
+        {
+            write("\nEnding game - not enough players left");
+            reset();
+        }
+
+        writeMsg('\n' ~ p.getName ~ " (" ~ playerNumber ~ ") left.");
+    }
+}
+
+void reset()
+{
+    model.reset();
+    disconnectedPlayers = [];
+
+    foreach (c; clients) {
+        closeConnection(c);
     }
 }
 
 void pollSockets() @trusted
 {
+    for (size_t i = 0; i < clients.length; i++)
+    {
+        if (clients[i].isMarkedForRemoval)
+        {
+            clients = clients.remove(i);
+            i--;
+        }
+    }
+
     socketSet.reset();
     socketSet.add(listenerSocket);
 
@@ -507,28 +674,23 @@ void pollSockets() @trusted
             }
         }
     }
-
-    for (size_t i = 0; i < clients.length; i++)
-    {
-        if (clients[i].isMarkedForRemoval)
-        {
-            clients = clients.remove(i);
-            i--;
-        }
-    }
 }
 
 // terminate the connection of a misbehaving client but keep player in the game
 void closeAndWaitForReconnect(ConnectedClient client)
 {
+    ServerPlayer p = client.player;
+    auto playerNumber = model.playerNumberOf(p).to!string;
+
     if (model.getState != GameState.NOT_STARTED && model.getState != GameState.END_GAME)
     {
-        ServerPlayer p = client.player;
         disconnectedPlayers ~= p;
         model.removeObserver(client);
         model.waitForReconnect(p);
         p.client = null;
         closeConnection(client);
+
+        writeMsg("\nTerminated connection of " ~ p.getName ~ " (" ~ playerNumber ~ ')');
     }
     else
     {

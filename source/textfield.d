@@ -32,6 +32,7 @@ final class TextField : TextComponent, Focusable, Clickable
         Texture renderedText;
         SDL_Cursor* defaultCursor;
         SDL_Cursor* hoverCursor;
+        Focusable onEnterItem;
         char[] text;
         int maxLength = -1;
         int padding;
@@ -95,6 +96,11 @@ final class TextField : TextComponent, Focusable, Clickable
     void maxTextLength(int max) @property pure nothrow @nogc
     {
         this.maxLength = max;
+    }
+
+    void onEnter(Focusable f) @property pure nothrow @nogc
+    {
+        this.onEnterItem = f;
     }
 
     void draw(ref Renderer renderer) @trusted nothrow
@@ -206,6 +212,13 @@ final class TextField : TextComponent, Focusable, Clickable
         {
             if (cursorPosition > 0) {
                 --cursorPosition;
+            }
+            return true;
+        }
+        else if (e.keysym.scancode == SDL_SCANCODE_RETURN || e.keysym.scancode == SDL_SCANCODE_KP_ENTER)
+        {
+            if (onEnterItem) {
+                onEnterItem.activate();
             }
             return true;
         }

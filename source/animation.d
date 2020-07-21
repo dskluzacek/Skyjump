@@ -58,8 +58,18 @@ struct MoveAnimation
         }
     }
 
+    void cancel()
+    {
+        startTime = MonoTime.init;
+        card = null;
+    }
+
     bool isFinished()
     {
+        if (startTime == MonoTime.init) {
+            return true;
+        }
+
         Duration elapsed = MonoTime.currTime() - startTime;
         return elapsed.total!"msecs" >= duration.total!"msecs";
     }

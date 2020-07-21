@@ -138,7 +138,7 @@ struct GameModel
     {
         foreach (ubyte n; 0 .. 256)
         {
-            if (players[n] is p) {
+            if (n in players && players[n] is p) {
                 return n;
             }
         }
@@ -164,6 +164,11 @@ struct GameModel
     void setPlayerCurrentTurn(ubyte player) pure nothrow
     {
         playerCurrentTurn = player;
+    }
+
+    ubyte getPlayerCurrentTurn() const pure nothrow @nogc
+    {
+        return playerCurrentTurn;
     }
 
     void setPlayerOut(ubyte playerNum) pure nothrow
@@ -215,6 +220,16 @@ struct ServerGameModel
     private Observer[] observers;
     private ubyte dealer = 0;
     private ubyte previousPlayerOut;
+
+    void reset()
+    {
+        baseModel.reset();
+        currentState = GameState.NOT_STARTED;
+        deck = new Deck();
+        drawnCard = null;
+        observers = [];
+        dealer = 0;
+    }
 
     ubyte addPlayer(Player p, Observer o)
     {

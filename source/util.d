@@ -345,27 +345,32 @@ mixin template ConfigFocusable()
 
 	Focusable nextUp() @property
 	{
-		return above !is null ? above : this;
+		return above !is null && above.focusEnabled ? above : this;
 	}
 
 	Focusable nextDown() @property
 	{
-		return below !is null ? below : this;
+		return below !is null && below.focusEnabled ? below : this;
 	}
 
 	Focusable nextLeft() @property
 	{
-		return left !is null ? left : this;
+		return left !is null && left.focusEnabled ? left : this;
 	}
 
 	Focusable nextRight() @property
 	{
-		return right !is null ? right : this;
+		return right !is null && right.focusEnabled ? right : this;
 	}
 
 	Focusable nextTab() @property
 	{
-		return tabNext !is null ? tabNext : this;
+		if (tabNext is null) {
+			return this;
+		}
+		else {
+			return tabNext.focusEnabled ? tabNext : tabNext.nextTab();
+		}
 	}
 }
 

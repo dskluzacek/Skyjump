@@ -278,6 +278,8 @@ void load(ref Renderer renderer)
 
 	connectButton = new Button(connect_button_dims, "Connect", uiFont, renderer);
 	connectButton.enabled = true;
+	nameTextField.onEnter = connectButton;
+	serverTextField.onEnter = connectButton;
 
 	nameTextField.nextDown = serverTextField;
 	nameTextField.nextTab = serverTextField;
@@ -347,12 +349,10 @@ void load(ref Renderer renderer)
 	lastTurnSound = loadWAV("assets/UI_007.wav");
 }
 
-SDL_Cursor* createCursor(SDL_SystemCursor c) @trusted
+SDL_Cursor* createCursor(SDL_SystemCursor c) @trusted nothrow @nogc
 {
 	return SDL_CreateSystemCursor(c);
 }
-
-
 
 void masterLoop(ref Window window,
                 ref Renderer renderer,
@@ -521,6 +521,8 @@ void sleepFor(Duration d) @trusted @nogc
 
 void connect()
 {
+	focusReset();
+
 	string name = nameTextField.getText();
 	string address = serverTextField.getText();
 
@@ -591,16 +593,23 @@ void pollServer()
 					leaveConnectMode();
 				}
 
-				handleMessage(message);
+				bool stop = handleMessage(message);
+
+				if (stop) {
+					resetConnection();
+					return;
+				}
 			});
 		}
 		catch (JoinException e) {
 			feedbackLabel.setText(connect_failed_str);
 			resetConnection();
+			return;
 		}
 		catch (SocketReadException e) {
 			feedbackLabel.setText("The connection to the server was lost.");
 			resetConnection();
+			return;
 		}
 	}
 	else
@@ -611,6 +620,7 @@ void pollServer()
 		if (connection.isConnected)
 		{
 			connection.send(ClientMessageType.JOIN, localPlayer.getName);
+			return;
 		}
 	}
 	assert(connectAttemptTimerStart != MonoTime.init);
@@ -810,7 +820,7 @@ void addClickable(Clickable c)
 	});
 }
 
-void handleMessage(ServerMessage message)
+bool handleMessage(ServerMessage message)
 {
 	final switch (message.type)
 	{
@@ -862,6 +872,10 @@ void handleMessage(ServerMessage message)
 		break;
 	case ServerMessageType.PLAYER_LEFT:
 		playerLeft(message.playerNumber);
+		if (currentMode != UIMode.PRE_GAME && model.numberOfPlayers == 1) {
+			feedbackLabel.setText("All of the other players left.");
+			return true;
+		}
 		break;
 	case ServerMessageType.WAITING:
 		pendingActions.insertBack(() => playerDisconnected(message.playerNumber));
@@ -906,16 +920,22 @@ void handleMessage(ServerMessage message)
 		});
 		break;
 	case ServerMessageType.IN_PROGRESS:
-		break;
+		feedbackLabel.setText("Couldn't join - game already in progress on this server.");
+		return true;
 	case ServerMessageType.FULL:
-		break;
+		feedbackLabel.setText("Couldn't join - this game is full.");
+		return true;
 	case ServerMessageType.NAME_TAKEN:
-		break;
+		feedbackLabel.setText("That name is already taken in this game - please try something else.");
+		return true;
 	case ServerMessageType.KICKED:
-		break;
+		feedbackLabel.setText("You have been kicked from the game.");
+		return true;
 	case ServerMessageType.NEW_GAME:
 		break;
 	}
+
+	return false;
 }
 
 void leaveConnectMode(UIMode mode = UIMode.PRE_GAME)
@@ -935,6 +955,9 @@ void enterConnectMode()
 {
 	enterNoActionMode(UIMode.CONNECT);
 
+	moveAnim.cancel();
+	pendingActions.clear();
+
 	nameTextField.visible = true;
 	nameTextField.enabled = true;
 	nameFieldLabel.setVisible(true);
@@ -949,8 +972,11 @@ void enterConnectMode()
 	writeln(model.numberOfPlayers);
 	writeln(model.getDiscardTopCard);
 
+	localPlayer.getGrid.clear();
 	localPlayerLabel.clearPlayer();
 	opponentGrids.each!( g => g.clearPlayer() );
+	opponentDrawnCard = null;
+	drawnCard.drawnCard = null;
 	updateOppGridsEnabledStatus(0);
 }
 
@@ -984,6 +1010,10 @@ void playerJoined(int number, string name)
 void playerLeft(int number)
 {
 	model.setPlayer(null, number.to!ubyte);
+
+	if (model.getPlayerCurrentTurn == number) {
+		opponentDrawnCard = null;
+	}
 
 	updateOppGridsEnabledStatus(model.numberOfPlayers);
 	assignOpponentPositions();
