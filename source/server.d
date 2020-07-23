@@ -63,44 +63,11 @@ void main() @system
             }
             else if (args[0] == "start")
             {
-                if (model.numberOfPlayers() < 2)
-                {
-                    writeMsg("Can't start the game - not enough players");
-                }
-                else if (model.getState != GameState.NOT_STARTED && model.getState != GameState.END_GAME)
-                {
-                    writeMsg("Game already in progress");
-                }
-                else
-                {
-                    foreach (client; clients) {
-                        client.readyReceived = false;
-                    }
-                    model.deal();
-                    write("$ ");
-                    stdout.flush();
-                }
+                startGame();
             }
             else if (args[0] == "next")
             {
-                if (model.getState != GameState.BETWEEN_HANDS)
-                {
-                    writeMsg("Can't start a new hand - not between hands");
-                }
-                else if (disconnectedPlayers.length > 0)
-                {
-                    writeMsg("Can't start a new hand - not all players connected");
-                }
-                else
-                {
-                    foreach (client; clients) {
-                        client.readyReceived = false;
-                    }
-                    model.nextHand();
-                    model.deal();
-                    write("$ ");
-                    stdout.flush();
-                }
+                startNextHand();
             }
             else if (args[0] == "list")
             {
@@ -135,10 +102,6 @@ void main() @system
                     writeMsg("Need player number");
                 }
             }
-            //else if (args[0] == "quit")
-            //{
-            //    assert(0);
-            //}
             else
             {
                 writeMsg("Command not recognized");
@@ -156,14 +119,6 @@ void consoleReader(Tid ownerTid) @trusted
     {
         readLength = readln(buffer);
         ownerTid.send(buffer.idup);
-
-        //Thread.sleep(1.msecs);
-
-        //receiveTimeout(0.msecs,
-        //(OwnerTerminated o) {
-        //    assert(0);
-        //}
-        //);
     }
     while (readLength > 0);
 }
@@ -171,6 +126,56 @@ void consoleReader(Tid ownerTid) @trusted
 void writeMsg(T...)(T args) @trusted
 {
     writeln(args);
+    write("$ ");
+    stdout.flush();
+}
+
+void startGame()
+{
+    if (model.numberOfPlayers() < 2)
+    {
+        writeMsg("Can't start the game - not enough players");
+    }
+    else if (disconnectedPlayers.length > 0)
+    {
+        writeMsg("Can't start the game - there are disconnected players");
+    }
+    else if (model.getState != GameState.NOT_STARTED && model.getState != GameState.END_GAME)
+    {
+        writeMsg("Game already in progress");
+    }
+    else
+    {
+        if (model.getState() == GameState.END_GAME) {
+            model.newGame();
+        }
+        deal();
+    }
+}
+
+void startNextHand()
+{
+    if (model.getState != GameState.BETWEEN_HANDS)
+    {
+        writeMsg("Can't start a new hand - not between hands");
+    }
+    else if (disconnectedPlayers.length > 0)
+    {
+        writeMsg("Can't start a new hand - not all players connected");
+    }
+    else
+    {
+        model.nextHand();
+        deal();
+    }
+}
+
+void deal() @trusted
+{
+    foreach (client; clients) {
+        client.readyReceived = false;
+    }
+    model.deal();
     write("$ ");
     stdout.flush();
 }
@@ -464,7 +469,6 @@ void clientReady(ConnectedClient client)
         writeMsg("\nERROR: clientReady during invalid state: ", model.getState);
         return;
     }
-    writeMsg("\nclientReady");
 
     client.readyReceived = true;
 

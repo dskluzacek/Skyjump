@@ -6,7 +6,7 @@ struct KeyboardController
 {
 	private
 	{
-		SDL_Scancode quitKey = SDL_SCANCODE_ESCAPE;
+		SDL_Scancode quitKey = SDL_SCANCODE_F12;
 		@nogc nothrow void delegate() quitHandler;
 	}
 

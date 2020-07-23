@@ -107,7 +107,7 @@ final class Label
 
         if (vMode != VerticalPositionMode.TOP || hMode != HorizontalPositionMode.LEFT)
         {
-            TTF_SizeText(font, text.toStringz, &width, &height);
+            TTF_SizeUTF8(font, text.toStringz, &width, &height);
         }
 
         final switch (hMode)
@@ -147,9 +147,14 @@ final class Label
         setPosition(x, y, hMode, vMode);
     }
 
-    Point getPosition()
+    Point getPosition() pure @nogc nothrow
     {
         return position;
+    }
+
+    int getWidth() @trusted nothrow
+    {
+        return renderedText.width;
     }
 
     void setRenderer(Renderer* renderer) pure

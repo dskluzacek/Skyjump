@@ -93,6 +93,7 @@ private
 	Font uiFont;
 	Font textFieldFont;
 	Texture disconnectedIcon;
+	Texture victoryIcon;
 	Sound dealSound;
 	Sound flipSound;
 	Sound discardSound;
@@ -146,7 +147,8 @@ enum UIMode
 	MY_TURN_ACTION,
 	DRAWN_CARD_ACTION,
 	SWAP_CARD_ACTION,
-	WAITING
+	WAITING,
+	END_GAME
 }
 
 void main() @system
@@ -186,12 +188,19 @@ bool initialize(out Window window, out Renderer renderer) @system
 		openAudio();
 		Mix_AllocateChannels(total_audio_channels);
 		Mix_ReserveChannels(num_reserved_audio_channels);
+		
+		version (linux)
+		{
+			// enable OpenGL multisampling
+			SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, 1);
+			SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, 8);
 
-		// enable OpenGL multisampling
-		SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, 1);
-		SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, 16);
-
-		SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "linear");
+			SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "linear");
+		}
+		version (Windows)
+		{
+			SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "best");
+		}
 	}
 	catch (DerelictException e) {
 		logFatalException(e, "Failed to load the SDL2 shared library");
@@ -323,6 +332,7 @@ void load(ref Renderer renderer)
 	gameBackground = new Background( renderer.loadTexture("assets/wood.png") );
 
 	disconnectedIcon = renderer.loadTexture("assets/network-x.png");
+	victoryIcon = renderer.loadTexture("assets/star.png");
 
 	Card.setTexture(CardRank.NEGATIVE_TWO, renderer.loadTexture("assets/-2.png") );
 	Card.setTexture(CardRank.NEGATIVE_ONE, renderer.loadTexture("assets/-1.png") );
@@ -889,6 +899,10 @@ bool handleMessage(ServerMessage message)
 		updateScores(message.scores);
 		break;
 	case ServerMessageType.WINNER:
+		pendingActions.insertBack({
+			model.getPlayer(message.playerNumber.to!ubyte).setWinner(true);
+			currentMode = UIMode.END_GAME;
+		});
 		break;
 	case ServerMessageType.YOUR_TURN:
 		pendingActions.insertBack( asDelegate({
@@ -932,6 +946,7 @@ bool handleMessage(ServerMessage message)
 		feedbackLabel.setText("You have been kicked from the game.");
 		return true;
 	case ServerMessageType.NEW_GAME:
+		newGame();
 		break;
 	}
 
@@ -969,8 +984,6 @@ void enterConnectMode()
 	feedbackLabel.setVisible(true);
 
 	model.reset();
-	writeln(model.numberOfPlayers);
-	writeln(model.getDiscardTopCard);
 
 	localPlayer.getGrid.clear();
 	localPlayerLabel.clearPlayer();
@@ -978,6 +991,18 @@ void enterConnectMode()
 	opponentDrawnCard = null;
 	drawnCard.drawnCard = null;
 	updateOppGridsEnabledStatus(0);
+}
+
+void newGame()
+{
+	enterNoActionMode(UIMode.PRE_GAME);
+
+	moveAnim.cancel();
+	pendingActions.clear();
+
+	model.newGame();
+	opponentDrawnCard = null;
+	drawnCard.drawnCard = null;
 }
 
 void enterNoActionMode(UIMode mode = UIMode.NO_ACTION)
@@ -1033,7 +1058,8 @@ void playerReconnected(int number)
 
 void beginDealing(int dealer)
 {
-	if (model.getPlayerOut.isNotNull) {
+	if (model.getPlayerOut.isNotNull)
+	{
 		model.nextHand();
 	}
 
@@ -1431,9 +1457,22 @@ void removeColumn(ubyte playerNumber, int columnIndex)
 
 void updateScores(int[ubyte] scores)
 {
+	if (model.getPlayerOut.isNotNull) {
+		displayScores(scores);
+	}
+
 	foreach (key, value; scores)
 	{
 		model.getPlayer(key).setScore(value);
+	}
+}
+
+void displayScores(int[ubyte] scores)
+{
+	foreach (key, value; scores)
+	{
+		Player p = model.getPlayer(key);
+		p.setHandScore((value - p.getScore).nullable);
 	}
 }
 
@@ -1525,8 +1564,26 @@ final class PlayerLabel
 
 	void render(ref Renderer renderer, bool overrideColor = false)
 	{
-		if (player !is null && currentMode != UIMode.PRE_GAME) {
-			nameLabel.setText(player.getName ~ " (" ~ player.getScore.to!string ~ ')');
+		if (player is null) {
+			return;
+		}
+
+		if (currentMode != UIMode.PRE_GAME)
+		{
+			string handScore = "";
+
+			if (player.getHandScore.isNotNull) {
+				auto number = player.getHandScore.get;
+				handScore = '[' ~ (number >= 0 ? "+" : "") ~ number.to!string ~ ']';
+			}
+
+			nameLabel.setText(player.getName ~ ' ' ~ handScore ~ '(' ~ player.getScore.to!string ~ ')');
+		}
+
+		if (player.isWinner)
+		{
+			Point labelPos = nameLabel.getPosition();
+			renderer.renderCopy(victoryIcon, labelPos.x + nameLabel.getWidth + 5, labelPos.y - 8);
 		}
 		auto playerTurn = model.playerWhoseTurnItIs();
 
@@ -1534,7 +1591,7 @@ final class PlayerLabel
 			// do nothing
 		}
 		else if (playerTurn.isNotNull && player is playerTurn.get && currentMode != UIMode.PRE_GAME
-		         && currentMode != UIMode.DEALING && currentMode != UIMode.FLIP_ACTION)
+			&& currentMode != UIMode.DEALING && currentMode != UIMode.FLIP_ACTION && currentMode != UIMode.END_GAME)
 		{
 			nameLabel.setColor(SDL_Color(0, 0, 255, 255));           // blue
 		}
@@ -1599,8 +1656,9 @@ final class OpponentGrid
 
 			Point labelPos = playerLabel.nameLabel.getPosition();
 			int x = labelPos.x - disconnectedIcon.width - 5;
-			renderer.renderCopy(disconnectedIcon, x, labelPos.y - 2);
+			renderer.renderCopy(disconnectedIcon, x, labelPos.y - 5);
 		}
+
 		playerLabel.render(renderer, overrideColor);
 	}
 }

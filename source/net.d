@@ -201,6 +201,11 @@ final class ConnectedClient : ServerGameModel.Observer
         send(ServerMessageType.WINNER, playerNum);
     }
 
+    override void newGame()
+    {
+        send(ServerMessageType.NEW_GAME);
+    }
+
     override void currentScores(ref ServerGameModel model)
     {
         char[] message = (ServerMessageType.CURRENT_SCORES).dup;

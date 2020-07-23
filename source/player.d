@@ -18,6 +18,10 @@ interface Player
     int getScore();
     void addScore(int amount);
     void setScore(int score);
+    Nullable!int getHandScore();
+    void setHandScore(Nullable!int value);
+    bool isWinner();
+    void setWinner(bool value);
     Nullable!Card opIndex(uint row, uint col);
     void opIndexAssign(Card c, uint row, uint col);
     void reset();
@@ -30,6 +34,8 @@ class PlayerImpl(GridType) : Player
         string name = "";
         GridType grid;
         int score;
+        Nullable!int handScore;
+        bool winner;
     }
 
     this()
@@ -85,6 +91,26 @@ class PlayerImpl(GridType) : Player
         score = value;
     }
 
+    override Nullable!int getHandScore()
+    {
+        return handScore;
+    }
+
+    override void setHandScore(Nullable!int value)
+    {
+        handScore = value;
+    }
+
+    override bool isWinner()
+    {
+        return winner;
+    }
+
+    override void setWinner(bool value)
+    {
+        winner = value;
+    }
+
     override Nullable!Card opIndex(uint row, uint col)
     {
         Card result = grid.getCards()[row][col];
@@ -107,5 +133,7 @@ class PlayerImpl(GridType) : Player
         name = "";
         grid.clear();
         score = 0;
+        handScore = (Nullable!int).init;
+        winner = false;
     }
 }

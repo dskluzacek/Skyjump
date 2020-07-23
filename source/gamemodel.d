@@ -192,20 +192,40 @@ struct GameModel
         discardPile = new DiscardStack();
         playerOut = (Nullable!ubyte).init;
 
-        foreach (player; players) {
+        foreach (player; players)
+        {
             player.getGrid.clear();
+            player.setHandScore( (Nullable!int).init );
+        }
+    }
+
+    void newGame()
+    {
+        resetImpl();
+
+        foreach (player; players)
+        {
+            player.getGrid.clear();
+            player.setScore(0);
+            player.setHandScore( (Nullable!int).init );
+            player.setWinner(false);
         }
     }
 
     void reset() @trusted
     {
+        resetImpl();
+        players.clear;
+
+        assert(numberOfPlayers() == 0);
+    }
+
+    private void resetImpl()
+    {
         discardPile = new DiscardStack();
         playerOut = (Nullable!ubyte).init;
         playerCurrentTurn = ubyte.init;
         handNumber = 1;
-        players.clear;
-
-        assert(numberOfPlayers() == 0);
     }
 }
 
@@ -229,6 +249,17 @@ struct ServerGameModel
         drawnCard = null;
         observers = [];
         dealer = 0;
+    }
+
+    void newGame()
+    {
+        baseModel.newGame();
+        currentState = GameState.NOT_STARTED;
+        deck = new Deck();
+        drawnCard = null;
+        dealer = 0;
+
+        observers.each!( obs => obs.newGame() );
     }
 
     ubyte addPlayer(Player p, Observer o)
@@ -408,6 +439,24 @@ struct ServerGameModel
         calculateScores();
         observers.each!( obs => obs.currentScores(this) );
         currentState = GameState.BETWEEN_HANDS;
+        checkForEndOfGame();
+    }
+
+    void checkForEndOfGame()
+    {
+        if (players.byValue.all!(a => a.getScore < 100)) {
+            return;
+        }
+        currentState = GameState.END_GAME;
+        auto minimum = players.byValue.map!(p => p.getScore).minElement;
+
+        foreach (p; players.byKeyValue)
+        {
+            if (p.value.getScore == minimum) {
+                p.value.setWinner(true);
+                observers.each!( obs => obs.winner(p.key) );
+            }
+        }
     }
 
     void nextHand()
@@ -632,10 +681,12 @@ struct ServerGameModel
     {
         auto totals = players.byValue.map!(p => tuple(p, p.getGrid.getCardsAsRange.map!(c => c.value).sum));
         auto minimum = totals.map!(a => a[1]).minElement;
+        auto count = totals.map!(a => a[1]).count!(n => n == minimum);
 
         foreach (t; totals)
         {
-            if (t[0] is players[playerOut.get] && t[1] > minimum)
+            // double score of player that went out if they do not have minimum or it's a tie
+            if (t[0] is players[playerOut.get] && (t[1] > minimum || count > 1))
             {
                 t[0].addScore(t[1] * 2);
             }
@@ -679,6 +730,7 @@ struct ServerGameModel
         void updateCards(int playerNum, PlayerGrid grid);
         void currentScores(ref ServerGameModel players);
         void winner(int playerNum);
+        void newGame();
     }
 
     private void checkIfShouldBeginFirstTurn()
