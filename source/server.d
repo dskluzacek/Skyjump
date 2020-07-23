@@ -102,6 +102,21 @@ void main() @system
                     writeMsg("Need player number");
                 }
             }
+            else if (args[0] == "set")
+            {
+                if (args.length == 5)
+                {
+                    try {
+                        setCard(args[1 .. $]);
+                    }
+                    catch (Exception e) {
+                        writeMsg("Invalid argument");
+                    }
+                }
+                else {
+                    writeMsg("Wrong number of arguments");
+                }
+            }
             else
             {
                 writeMsg("Command not recognized");
@@ -128,6 +143,21 @@ void writeMsg(T...)(T args) @trusted
     writeln(args);
     write("$ ");
     stdout.flush();
+}
+
+void setCard(string[] args)
+{
+    ubyte index = args[0].to!ubyte;
+    ubyte row = args[1].to!ubyte;
+    ubyte col = args[2].to!ubyte;
+    auto rank = args[3].to!byte;
+
+    if (! model.hasPlayer(index) || row > 2 || col > 3 || rank < -2 || rank > 12) {
+        throw new Exception("invalid argument");
+    }
+
+    model[index][row, col] = new Card(rank.to!CardRank);
+    writeMsg();
 }
 
 void startGame()
@@ -196,7 +226,7 @@ void listPlayers()
     {
         writeln(model.playerNumberOf(p), " - ", p.getName);
     }
-    writeMsg("");
+    writeMsg();
 }
 
 void dropPlayer(int number)

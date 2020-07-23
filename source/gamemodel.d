@@ -313,6 +313,11 @@ struct ServerGameModel
         return baseModel.playerKeys();
     }
 
+    bool hasPlayer(ubyte index)
+    {
+        return (index in players ? true : false);
+    }
+
     Player opIndex(ubyte index) pure
     {
         return baseModel.getPlayer(index);
@@ -790,7 +795,7 @@ struct ServerGameModel
             p[1, col] = null;
             p[2, col] = null;
 
-            observers.each!( obs => obs.columnRemoved(playerCurrentTurn, col) );
+            observers.each!( obs => obs.columnRemoved(playerNumberOf(p), col) );
         }
     }
 
