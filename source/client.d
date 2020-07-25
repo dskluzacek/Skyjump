@@ -40,7 +40,7 @@ import draganddrop;
 import textfield;
 
 enum window_title = "Skyjump";
-enum version_str  = "pre-alpha";
+enum version_str  = "v0.0.1";
 
 enum connect_failed_str = "Failed to connect to server.";
 
@@ -282,7 +282,7 @@ void load(ref Renderer renderer)
 	nameTextField.maxTextLength = MAX_NAME_LENGTH;
 	serverTextField = new TextField(textFieldFont, server_field_dims, 4, arrowCursor, iBeamCursor);
 	serverTextField.maxTextLength = 20;
-	serverTextField.setText("localhost", renderer);
+	debug serverTextField.setText("localhost", renderer);
 	textComponents = [nameTextField, serverTextField];
 
 	connectButton = new Button(connect_button_dims, "Connect", uiFont, renderer);
@@ -2000,7 +2000,7 @@ void writeError(Throwable exc, string userMessage) nothrow
 {
 	try
 	{
-		writeln(userMessage, "\n(", exc.msg, ")");
+		debug writeln(userMessage, "\n(", exc.msg, ")");
 	}
 	catch (Exception e)
 	{

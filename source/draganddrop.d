@@ -68,9 +68,6 @@ mixin template DragAndDrop()
                 float intersect = intersectionArea(draggedBox, targetBox);
                 float percent = intersect / card_area;
 
-                import std.stdio;
-                writeln(intersect, ' ', percent);
-
                 if ( (targetBox.containsPoint(p) && percent > 0.5f) || percent > 0.7f ) {
                     hasBeenDropped = true;
                     target.drop(targetBox);

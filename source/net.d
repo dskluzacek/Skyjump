@@ -304,7 +304,7 @@ final class ConnectionToServer
             }
             else
             {
-                write(buffer[0 .. dataLength]);
+                //write(buffer[0 .. dataLength]);
                 dataReceived = true;
                 return handleChars!(ServerMessage, parseServerMessage)(leftoverChars, buffer[0 .. dataLength].idup);
             }
