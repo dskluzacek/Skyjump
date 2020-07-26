@@ -23,6 +23,8 @@ enum ushort PORT = 7684;
 enum BACKLOG = 5;
 enum MAX_PLAYERS = 5;
 
+enum VERSION_STR = "0.0.3";
+
 private
 {
     Socket listenerSocket;
@@ -45,7 +47,7 @@ void main() @system
     listenerSocket.bind(new InternetAddress(PORT));
     listenerSocket.listen(BACKLOG);
 
-    write("\n$ ");
+    write("Skyjump server version ", VERSION_STR, "\n$ ");
     consoleThread = spawn(&consoleReader, thisTid);
     bool quit;
 
@@ -231,7 +233,7 @@ void listPlayers()
 
 void dropPlayer(int number)
 {
-    if (model.numberOfPlayers < 3) {
+    if (model.numberOfPlayers < 3 && model.getState != GameState.NOT_STARTED && model.getState != GameState.END_GAME) {
         writeMsg("Can't drop a player - not enough players would remain");
         return;
     }
@@ -249,7 +251,7 @@ void dropPlayer(int number)
 
 void kickPlayer(int number)
 {
-    if (model.numberOfPlayers < 3) {
+    if (model.numberOfPlayers < 3 && model.getState != GameState.NOT_STARTED && model.getState != GameState.END_GAME) {
         writeMsg("Can't kick a player - not enough players would remain");
         return;
     }
@@ -391,6 +393,7 @@ void playerAdd(ConnectedClient client, string name)
             client.playerJoined(key, model[key].getName);
         }
     }
+    writeMsg("\nPlayer '", name, "' joined from ", client.socket.remoteAddress);
 }
 
 void playerReconnect(ConnectedClient client, ServerPlayer player, string name)
@@ -423,6 +426,10 @@ body
                 }
             }
         }
+        model.getPlayerOut().ifPresent!((a) {
+            if (model.getState == GameState.BETWEEN_HANDS)
+                client.lastTurn(a);
+        });
         client.currentScores(model);
         model.getDiscardTopCard().ifPresent!( c => client.send(ServerMessageType.DISCARD_CARD, cast(int) c.rank) );
         model.getPlayerOut().ifPresent!((a) {
@@ -440,7 +447,7 @@ body
     }
     else
     {
-        writeMsg("\nERROR: upon reconnect, player not found in GameModel");
+        write("\nERROR: upon reconnect, player not found in GameModel");
         disconnectedPlayers = disconnectedPlayers.remove!( a => a is player );
         closeConnection(client);
     }
@@ -676,16 +683,12 @@ void pollSockets() @trusted
             msg.ifPresent!( m => handleMessage(m, client) );
         }
         catch (Exception e) {
-            if (client.isMarkedForRemoval) {
-                writeMsg("\nclient marked for removal / ", e.msg);
-                continue;
-            }
-            else if (client.waitingForJoin) {
-                writeMsg("\nclosing connection before join / ", e.msg);
+            if (client.waitingForJoin) {
+                write("\nclosing connection before join / ", e.msg);
                 closeConnection(client);
             }
             else {
-                writeMsg("\nclosing connection / ", e.msg);
+                write("\nclosing connection / ", e.msg);
                 closeAndWaitForReconnect(client);
             }
         }
@@ -698,6 +701,7 @@ void pollSockets() @trusted
         try {
             sock = listenerSocket.accept();
             auto client = new ConnectedClient(sock);
+            writeMsg("\nNew connection from ", sock.remoteAddress);
             clients ~= client;
         }
         catch (SocketAcceptException e) {
@@ -722,9 +726,8 @@ void closeAndWaitForReconnect(ConnectedClient client)
         model.removeObserver(client);
         model.waitForReconnect(p);
         p.client = null;
+        writeln("\nTerminating connection of " ~ p.getName ~ " (" ~ playerNumber ~ ')');
         closeConnection(client);
-
-        writeMsg("\nTerminated connection of " ~ p.getName ~ " (" ~ playerNumber ~ ')');
     }
     else
     {
@@ -732,10 +735,13 @@ void closeAndWaitForReconnect(ConnectedClient client)
     }
 }
 
-void closeConnection(ConnectedClient client) nothrow @nogc
+void closeConnection(ConnectedClient client)
 {
     Socket s = client.socket();
+    auto remoteAddr = s.remoteAddress;
     s.shutdown(SocketShutdown.BOTH);
     s.close();
     client.markForRemoval();
+
+    writeMsg("\nClosed connection from ", remoteAddr);
 }

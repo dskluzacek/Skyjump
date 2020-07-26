@@ -1,7 +1,6 @@
 module net;
 @safe:
 
-import std.stdio;
 import std.array : join;
 import std.string;
 import std.socket;
@@ -272,6 +271,7 @@ final class ConnectionToServer
     private Socket _socket;
     private bool connected;
     private bool dataReceived;
+    private const(char)[] leftoverChars = "";
 
     this(Socket sock)
     {
@@ -282,8 +282,6 @@ final class ConnectionToServer
 
     Nullable!ServerMessage poll(SocketSet socketSet)
     {
-        static const(char)[] leftoverChars = "";
-
         if ( socketSet.isSet(_socket) )
         {
             char[BUFFER_SIZE] buffer;
@@ -536,6 +534,9 @@ private Nullable!ServerMessage parseServerMessage(in char[] line)
     if (line.strip().length == 0) {
         return (Nullable!ServerMessage).init;
     }
+
+    debug import std.stdio;
+    debug writeln(line);
 
     auto words = line.split();
     const(char)[][] args;

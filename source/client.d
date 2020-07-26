@@ -38,9 +38,10 @@ import label;
 import button;
 import draganddrop;
 import textfield;
+import theme;
 
 enum window_title = "Skyjump";
-enum version_str  = "v0.0.1";
+enum version_str  = "v0.0.3";
 
 enum connect_failed_str = "Failed to connect to server.";
 
@@ -57,6 +58,8 @@ enum drawn_card_rect = Rectangle(drawn_card_position.x, drawn_card_position.y,
 
 enum cancel_button_dims = Rectangle(1248, 215, 120, 40);
 enum connect_button_dims = Rectangle(880, 620, 160, 40);
+enum felt_theme_btn_dims = Rectangle(1745, 1025, 160, 40);
+enum wood_theme_btn_dims = Rectangle(1615, 1025, 120, 40);
 
 enum name_field_dims = Rectangle(777, 490, 550, 50);
 enum server_field_dims = Rectangle(777, 550, 550, 50);
@@ -94,6 +97,8 @@ private
 	Font textFieldFont;
 	Texture disconnectedIcon;
 	Texture victoryIcon;
+	Texture woodTexture;
+	Texture greenFeltTexture;
 	Sound dealSound;
 	Sound flipSound;
 	Sound discardSound;
@@ -109,6 +114,8 @@ private
 	DrawnCard drawnCard;
 	Button cancelButton;
 	Button connectButton;
+	Button woodThemeButton;
+	Button greenFeltThemeButton;
 	Card opponentDrawnCard;
 	Rectangle opponentDrawnCardRect;
 	Label lastTurnLabel1;
@@ -116,6 +123,8 @@ private
 	Label serverFieldLabel;
 	Label nameFieldLabel;
 	Label feedbackLabel;
+	Label themeLabel;
+	Theme activeTheme;
 	MoveAnimation moveAnim;
 	DealAnimation dealAnim;
 	DList!(void delegate()) pendingActions;
@@ -329,7 +338,27 @@ void load(ref Renderer renderer)
 	opponentGrids[2] = new OpponentGrid(Point(1464, 40), NamePlacement.BELOW, nameFont, renderer);
 	opponentGrids[3] = new OpponentGrid(Point(1464, 580), NamePlacement.ABOVE, nameFont, renderer);
 
-	gameBackground = new Background( renderer.loadTexture("assets/wood.png") );
+	woodTexture = renderer.loadTexture("assets/wood.png");
+	greenFeltTexture = renderer.loadTexture("assets/felt.jpg");
+	gameBackground = new Background(woodTexture);
+
+	woodThemeButton = new Button(wood_theme_btn_dims, "Wood", uiFont, renderer);
+	greenFeltThemeButton = new Button(felt_theme_btn_dims, "Green felt", uiFont, renderer);
+
+	auto woodTheme = Theme(woodTexture, SDL_Color(0, 0, 0, 255), SDL_Color(0, 0, 255, 255));
+	activeTheme = woodTheme;
+
+	woodThemeButton.enabled = true;
+	woodThemeButton.onClick = () @safe { setTheme(woodTheme, renderer); };
+
+	greenFeltThemeButton.enabled = true;
+	greenFeltThemeButton.onClick = asDelegate(() @safe
+	  { setTheme(Theme(greenFeltTexture, SDL_Color(255, 255, 255, 255), SDL_Color(0, 255, 255, 255)), renderer); });
+
+	themeLabel = new Label("Theme: ", mediumFont);
+	themeLabel.setPosition(wood_theme_btn_dims.x, wood_theme_btn_dims.y + wood_theme_btn_dims.h / 2,
+	                       HorizontalPositionMode.RIGHT, VerticalPositionMode.CENTER);
+	themeLabel.renderText(renderer);
 
 	disconnectedIcon = renderer.loadTexture("assets/network-x.png");
 	victoryIcon = renderer.loadTexture("assets/star.png");
@@ -364,6 +393,19 @@ SDL_Cursor* createCursor(SDL_SystemCursor c) @trusted nothrow @nogc
 	return SDL_CreateSystemCursor(c);
 }
 
+void setTheme(Theme theme, ref Renderer renderer)
+{
+	activeTheme = theme;
+	gameBackground.setTexture(theme.getBackgroundTexture);
+	theme.updateLabelColors(
+		[lastTurnLabel1, lastTurnLabel2, serverFieldLabel, nameFieldLabel, feedbackLabel, themeLabel]);
+	lastTurnLabel1.renderText(renderer);
+	lastTurnLabel2.renderText(renderer);
+	serverFieldLabel.renderText(renderer);
+	nameFieldLabel.renderText(renderer);
+	themeLabel.renderText(renderer);
+}
+
 void masterLoop(ref Window window,
                 ref Renderer renderer,
                 ref bool quit,
@@ -379,6 +421,8 @@ void masterLoop(ref Window window,
 	addClickable(discardPile);
 	addClickable(cancelButton);
 	addClickable(connectButton);
+	addClickable(woodThemeButton);
+	addClickable(greenFeltThemeButton);
 	addClickable(drawnCard);
 	addClickable(nameTextField);
 	addClickable(serverTextField);
@@ -476,9 +520,13 @@ void render(ref Window window, ref Renderer renderer)
 	serverFieldLabel.draw(renderer);
 	connectButton.draw(renderer);
 	feedbackLabel.draw(renderer);
+	themeLabel.draw(renderer);
 
 	nameTextField.draw(renderer);
 	serverTextField.draw(renderer);
+
+	woodThemeButton.draw(renderer);
+	greenFeltThemeButton.draw(renderer);
 
 	drawPile.render(renderer, windowHasFocus);
 	discardPile.render(renderer, windowHasFocus);
@@ -546,6 +594,7 @@ void connect()
 	}
 
 	feedbackLabel.setText("");
+	localPlayer.reset();
 	localPlayer.setName(name);
 
 	Socket socket;
@@ -811,6 +860,8 @@ void setFocusType(FocusType type)
 	localPlayer.getGrid.windowFocusNotify(type);
 	cancelButton.windowFocusNotify(type);
 	connectButton.windowFocusNotify(type);
+	woodThemeButton.windowFocusNotify(type);
+	greenFeltThemeButton.windowFocusNotify(type);
 }
 
 mixin Observable!("mouseMotion", SDL_MouseMotionEvent);
@@ -964,6 +1015,9 @@ void leaveConnectMode(UIMode mode = UIMode.PRE_GAME)
 	serverFieldLabel.setVisible(false);
 	connectButton.visible = false;
 	feedbackLabel.setVisible(false);
+	themeLabel.setVisible(false);
+	woodThemeButton.visible = false;
+	greenFeltThemeButton.visible = false;
 }
 
 void enterConnectMode()
@@ -982,6 +1036,11 @@ void enterConnectMode()
 	connectButton.visible = true;
 	connectButton.enabled = true;
 	feedbackLabel.setVisible(true);
+	themeLabel.setVisible(true);
+	woodThemeButton.visible = true;
+	woodThemeButton.enabled = true;
+	greenFeltThemeButton.visible = true;
+	greenFeltThemeButton.enabled = true;
 
 	model.reset();
 
@@ -1047,7 +1106,11 @@ void playerLeft(int number)
 void playerDisconnected(int number)
 {
 	yourTurnSoundTimerStart = MonoTime.init;   // suppress "your turn" sound
-	enterNoActionMode(UIMode.WAITING);
+
+	if (currentMode != UIMode.DEALING) {
+		enterNoActionMode(UIMode.WAITING);
+	}
+
 	(cast(ClientPlayer) model.getPlayer(number.to!ubyte)).disconnected = true;
 }
 
@@ -1593,10 +1656,10 @@ final class PlayerLabel
 		else if (playerTurn.isNotNull && player is playerTurn.get && currentMode != UIMode.PRE_GAME
 			&& currentMode != UIMode.DEALING && currentMode != UIMode.FLIP_ACTION && currentMode != UIMode.END_GAME)
 		{
-			nameLabel.setColor(SDL_Color(0, 0, 255, 255));           // blue
+			nameLabel.setColor(activeTheme.getPlayerTurnTextColor);           // blue
 		}
 		else {
-			nameLabel.setColor(SDL_Color(0, 0, 0, 255));             // black
+			nameLabel.setColor(activeTheme.getPrimaryTextColor);             // black
 		}
 		nameLabel.draw(renderer);
 	}

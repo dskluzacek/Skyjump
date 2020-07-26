@@ -31,4 +31,9 @@ final class Background
             }
         }
     }
+
+    void setTexture(Texture t)
+    {
+        this.texture = t;
+    }
 }

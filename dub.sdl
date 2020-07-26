@@ -5,13 +5,14 @@ configuration "SkyjumpApp" {
     excludedSourceFiles "source/server.d"
     dependency "derelict-sdl2" version="~>2.0.2"
     dependency "derelict-util" version="*"
+    buildRequirements "requireContracts" "requireBoundsCheck"
     targetName "skyjump"
 }
 
 configuration "SkyjumpServer" {
     targetType "executable"
     mainSourceFile "source/server.d"
-    excludedSourceFiles "source/client.d" "source/label.d" "source/keyboard.d" "source/animation.d" "source/background.d" "source/button.d" "source/textfield.d"
+    excludedSourceFiles "source/client.d" "source/label.d" "source/keyboard.d" "source/animation.d" "source/background.d" "source/button.d" "source/textfield.d" "source/theme.d"
     dependency "derelict-sdl2" version="~>2.0.2"
     dependency "derelict-util" version="*"
     targetName "skyjump-server"

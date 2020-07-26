@@ -18,3 +18,6 @@ skyjump-test-*
 *.lst
 crash-report.txt
 Skyjump.iml
+*.ttf
+*.zip
+*.png
