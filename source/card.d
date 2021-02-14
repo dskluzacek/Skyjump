@@ -177,7 +177,7 @@ final class Deck
             return (Nullable!Card).init;
         }
 
-        ulong index = uniform!"[)"(0, cards.length);
+        size_t index = uniform!"[)"(0, cards.length);
         Card result = cards[index];
         cards = cards.remove(index);
 
@@ -231,7 +231,7 @@ final class DiscardStack
             return (Nullable!(const(Card))).init;
         }
 
-        return cards[cards.length - 1].nullable;
+        return cards[cards.length - 1].nullable; //@suppress(dscanner.suspicious.length_subtraction)
     }
 
     Nullable!(const(Card)) peek(uint cardsFromTop) const pure nothrow

@@ -12,6 +12,9 @@ import card;
 import util : lerp, offset;
 import playergrid : AbstractClientGrid, card_large_height, card_large_width;
 
+alias StartTimeType = MonoTime;
+alias DurationType = Duration;
+
 struct MoveAnimation
 {
     private
@@ -19,10 +22,15 @@ struct MoveAnimation
         Card card;
         Rectangle start;
         Rectangle end;
-        MonoTime startTime;
-        Duration duration;
+        StartTimeType startTime;
+        DurationType duration;
         public void delegate() _onFinished;
         bool onFinishedCalled;
+
+        version (Android) {
+            int prevX = -1;
+            int prevY = -1;
+        }
     }
 
     this(Card card, Rectangle start, Rectangle end, Duration duration) nothrow
@@ -32,7 +40,7 @@ struct MoveAnimation
         this.end = end;
         this.duration = duration;
         this.onFinishedCalled = false;
-
+        
         startTime = MonoTime.currTime();
     }
 
@@ -42,7 +50,7 @@ struct MoveAnimation
             return true;
         }
 
-        Duration elapsed = MonoTime.currTime() - startTime;
+        auto elapsed = getElapsedTime();
 
         if (elapsed.total!"msecs" >= duration.total!"msecs")
         {
@@ -60,17 +68,17 @@ struct MoveAnimation
 
     void cancel()
     {
-        startTime = MonoTime.init;
+        startTime = StartTimeType.init;
         card = null;
     }
 
     bool isFinished()
     {
-        if (startTime == MonoTime.init) {
+        if (startTime == StartTimeType.init) {
             return true;
         }
 
-        Duration elapsed = MonoTime.currTime() - startTime;
+        auto elapsed = getElapsedTime();
         return elapsed.total!"msecs" >= duration.total!"msecs";
     }
 
@@ -85,12 +93,14 @@ struct MoveAnimation
             return;
         }
 
-        Duration elapsed = MonoTime.currTime() - startTime;
-        float fraction = elapsed.total!"msecs" / (cast(float) duration.total!"msecs");
+        auto elapsed = getElapsedTime();
+        float fraction = elapsed.total!"usecs" / (cast(float) duration.total!"usecs");
 
-        if (fraction > 1.0f) {
-            //fraction = 1.0f;
+        if (fraction > 1.1f) {
             return;
+        }
+        else if (fraction > 1.0f) {
+            fraction = 1.0f;
         }
 
         Point startCenter = Point(start.x + start.w / 2, start.y + start.h / 2);
@@ -105,6 +115,19 @@ struct MoveAnimation
         int y = cast(int) (center.y - height / 2.0f);
 
         card.draw(renderer, Point(x, y), cast(int) width, cast(int) height);
+        
+        version (Android) {
+            if ((prevX != -1 || prevY != -1) && fraction != 1.0f) {
+                card.draw(renderer, Point(prevX, prevY), cast(int) width, cast(int) height);
+            }
+            prevX = x;
+            prevY = y;
+        }
+    }
+
+    private DurationType getElapsedTime() @trusted
+    {
+        return MonoTime.currTime() - startTime;
     }
 }
 
@@ -163,3 +186,13 @@ final class DealAnimation
         animation.render(renderer);
     }
 }
+
+// private:
+//
+// version (Android)
+// {
+//     int total(string S)(int x) if (S == "msecs")
+//     {
+//         return x;
+//     }
+// }

@@ -15,8 +15,9 @@ import std.conv;
 import std.container : DList;
 import core.time;
 import core.thread;
+import core.memory;
 
-import derelict.sdl2.mixer;
+import bindbc.sdl.mixer;
 import sdl2.sdl,
        sdl2.window,
        sdl2.renderer,
@@ -72,18 +73,6 @@ enum connect_timeout = 12.seconds;
 enum anim_duration = 285.msecs;
 enum dragged_anim_speed = 0.728f;  // pixels per ms
 
-Card unknown_card;
-
-static this()
-{
-	unknown_card = new Card(CardRank.UNKNOWN);
-	drawPile = new DrawPile(draw_pile_position);
-	discardPile = new DiscardPile(discard_pile_position);
-	drawnCard = new DrawnCard(drawn_card_position);
-	opponentGrids = new OpponentGrid[4];
-	socketSet = new SocketSet();
-}
-
 private
 {
 	GameModel model;
@@ -117,6 +106,7 @@ private
 	Button woodThemeButton;
 	Button greenFeltThemeButton;
 	Card opponentDrawnCard;
+	Card unknown_card;
 	Rectangle opponentDrawnCardRect;
 	Label lastTurnLabel1;
 	Label lastTurnLabel2;
@@ -160,24 +150,48 @@ enum UIMode
 	END_GAME
 }
 
-void main() @system
+version (Android)
 {
-	try {
-		run();
-		return;
-	}
-	catch (Error err) {
-		logFatalException(err, "Runtime error");
-		debug writeln('\n', err);
-	}
-	catch (Throwable ex) {
-		logFatalException(ex, "Uncaught exception");
-		debug writeln('\n', ex);
-	}
+	pragma(msg, "Compiling Skyjump for Android...");
 
-	if ( DerelictSDL2.isLoaded() )
+	import core.runtime : rt_init, rt_term;
+
+	// bool function(EGLDisplay, EGLSurface, long) nothrow @nogc @system eglPresentationTimeANDROID;
+	// EGLDisplay eglDisplay;
+	// EGLSurface eglSurface;
+	// long androidPresentationTime = 0;
+
+	extern (C) int SDL_main() @system
 	{
-		showErrorDialog("An error occurred and Skyjump is closing.");
+		rt_init();
+
+		scope(exit) rt_term();
+
+		run();
+		return 0;
+	}
+}
+else
+{
+	void main() @system
+	{
+		try {
+			run();
+			return;
+		}
+		catch (Error err) {                          // @suppress(dscanner.suspicious.catch_em_all)
+			logFatalException(err, "Runtime error");
+			debug writeln('\n', err);
+		}
+		catch (Throwable ex) {                          // @suppress(dscanner.suspicious.catch_em_all)
+			logFatalException(ex, "Uncaught exception");
+			debug writeln('\n', ex);
+		}
+
+		if ( isSDLLoaded() )
+		{
+			showErrorDialog("An error occurred and Skyjump is closing.");
+		}
 	}
 }
 
@@ -197,8 +211,17 @@ bool initialize(out Window window, out Renderer renderer) @system
 		openAudio();
 		Mix_AllocateChannels(total_audio_channels);
 		Mix_ReserveChannels(num_reserved_audio_channels);
-		
-		version (linux)
+
+		version (Android)
+		{
+			// eglPresentationTimeANDROID = cast(bool function(void*, void*, long) nothrow @nogc)
+			//     eglGetProcAddress("eglPresentationTimeANDROID");
+			
+			// SDL_Log("eglPresentationTimeANDROID: %p", eglPresentationTimeANDROID);
+
+			SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "best");
+		}
+		else version (linux)
 		{
 			// enable OpenGL multisampling
 			SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, 1);
@@ -206,31 +229,68 @@ bool initialize(out Window window, out Renderer renderer) @system
 
 			SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "linear");
 		}
-		version (Windows)
+		else version (Windows)
 		{
 			SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "best");
 		}
 	}
-	catch (DerelictException e) {
-		logFatalException(e, "Failed to load the SDL2 shared library");
-		return false;
-	}
 	catch (SDL2Exception e) {
-		showErrorDialog(e, "SDL could not be initialized", Yes.logToFile);
+		if ( isSDLLoaded() ) {
+			showErrorDialog(e, "SDL could not be initialized", Yes.logToFile);
+		}
+		else {
+			logFatalException(e, "Failed to load the SDL2 shared library");
+		}
 		return false;
 	}
 
 	/* -- Create window and renderer -- */
 	try {
-		window = Window( window_title,
-		SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-		1200, 675,
-		SDL_WINDOW_HIDDEN
-//		| SDL_WINDOW_MAXIMIZED
-		| SDL_WINDOW_RESIZABLE );
+		version (Android)
+		{
+			Rectangle screenRect = Rectangle(0, 0, 320, 240);
+			SDL_DisplayMode displayMode;
 
-		renderer = window.createRenderer( SDL_RENDERER_ACCELERATED
-		                                  | SDL_RENDERER_PRESENTVSYNC );
+			if (SDL_GetCurrentDisplayMode(0, &displayMode) == 0)
+			{
+				screenRect.w = displayMode.w;
+				screenRect.h = displayMode.h;
+			}
+
+			window = Window( "",
+			SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
+			screenRect.w, screenRect.h,
+			SDL_WINDOW_FULLSCREEN
+			| SDL_WINDOW_RESIZABLE );
+
+			renderer = window.createRenderer(cast(SDL_RendererFlags) 0);
+
+			// eglDisplay = SDL_GetEGLDisplay();
+
+			// SDL_Log("SDL_GetEGLDisplay: %p", eglDisplay);
+			// SDL_Log("eglGetDisplay(EGL_DEFAULT_DISPLAY): %p", eglGetDisplay(EGL_DEFAULT_DISPLAY));
+
+			// SDL_SysWMinfo info;
+
+			// SDL_VERSION(&info.version_);
+			// auto result = SDL_GetWindowWMInfo(window.raw_window, &info);
+
+			// eglSurface = info.info.android.surface;
+
+			// SDL_Log("SDL_GetWindowWMInfo result= %d", result);
+			// SDL_Log("eglSurface= %p", eglSurface);
+		}
+		else
+		{
+			window = Window( window_title,
+			SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+			1200, 675,
+			SDL_WINDOW_HIDDEN
+			| SDL_WINDOW_RESIZABLE );
+
+			renderer = window.createRenderer( SDL_RENDERER_ACCELERATED
+			                                  | SDL_RENDERER_PRESENTVSYNC );
+		}
 
 		return true;
 	}
@@ -247,6 +307,13 @@ void run() @system
 
 	scope(exit) shutdown();
 
+	unknown_card = new Card(CardRank.UNKNOWN);
+	drawPile = new DrawPile(draw_pile_position);
+	discardPile = new DiscardPile(discard_pile_position);
+	drawnCard = new DrawnCard(drawn_card_position);
+	opponentGrids = new OpponentGrid[4];
+	socketSet = new SocketSet();
+
 	if ( ! initialize(window, renderer) ) {
 		return;
 	}
@@ -262,12 +329,19 @@ void run() @system
 
 void load(ref Renderer renderer)
 {
-	uiFont = openFont("assets/Metropolis-ExtraBold.ttf", 26);
-	largeFont = openFont("assets/Metropolis-ExtraBold.ttf", 42);
-	mediumFont = openFont("assets/Metropolis-Medium.ttf", 32);
-	smallFont = openFont("assets/Metropolis-Medium.ttf", 24);
-	nameFont = openFont("assets/Metropolis-SemiBold.ttf", 37);
-	textFieldFont = openFont("assets/RobotoCondensed-Regular.ttf", 36);
+	version (Android) {
+		enum assetPath = "";
+	}
+	else {
+		enum assetPath = "assets/";
+	}
+
+	uiFont = openFont(assetPath ~ "Metropolis-ExtraBold.ttf", 26);
+	largeFont = openFont(assetPath ~ "Metropolis-ExtraBold.ttf", 42);
+	mediumFont = openFont(assetPath ~ "Metropolis-Medium.ttf", 32);
+	smallFont = openFont(assetPath ~ "Metropolis-Medium.ttf", 24);
+	nameFont = openFont(assetPath ~ "Metropolis-SemiBold.ttf", 37);
+	textFieldFont = openFont(assetPath ~ "RobotoCondensed-Regular.ttf", 36);
 
 	localPlayer = new LocalPlayer();
 
@@ -284,8 +358,12 @@ void load(ref Renderer renderer)
 	cancelButton.nextTab = clickableGrid;
 	cancelButton.nextDown = clickableGrid;
 
-	arrowCursor = createCursor(SDL_SYSTEM_CURSOR_ARROW);
-	iBeamCursor = createCursor(SDL_SYSTEM_CURSOR_IBEAM);
+	version (Android) {
+	}
+	else {
+		arrowCursor = createCursor(SDL_SYSTEM_CURSOR_ARROW);
+		iBeamCursor = createCursor(SDL_SYSTEM_CURSOR_IBEAM);
+	}
 
 	nameTextField = new TextField(textFieldFont, name_field_dims, 4, arrowCursor, iBeamCursor);
 	nameTextField.maxTextLength = MAX_NAME_LENGTH;
@@ -338,8 +416,8 @@ void load(ref Renderer renderer)
 	opponentGrids[2] = new OpponentGrid(Point(1464, 40), NamePlacement.BELOW, nameFont, renderer);
 	opponentGrids[3] = new OpponentGrid(Point(1464, 580), NamePlacement.ABOVE, nameFont, renderer);
 
-	woodTexture = renderer.loadTexture("assets/wood.png");
-	greenFeltTexture = renderer.loadTexture("assets/felt.jpg");
+	woodTexture = renderer.loadTexture(assetPath ~ "wood.png");
+	greenFeltTexture = renderer.loadTexture(assetPath ~ "felt.jpg");
 	gameBackground = new Background(woodTexture);
 
 	woodThemeButton = new Button(wood_theme_btn_dims, "Wood", uiFont, renderer);
@@ -360,32 +438,32 @@ void load(ref Renderer renderer)
 	                       HorizontalPositionMode.RIGHT, VerticalPositionMode.CENTER);
 	themeLabel.renderText(renderer);
 
-	disconnectedIcon = renderer.loadTexture("assets/network-x.png");
-	victoryIcon = renderer.loadTexture("assets/star.png");
+	disconnectedIcon = renderer.loadTexture(assetPath ~ "network-x.png");
+	victoryIcon = renderer.loadTexture(assetPath ~ "star.png");
 
-	Card.setTexture(CardRank.NEGATIVE_TWO, renderer.loadTexture("assets/-2.png") );
-	Card.setTexture(CardRank.NEGATIVE_ONE, renderer.loadTexture("assets/-1.png") );
-	Card.setTexture(CardRank.ZERO, renderer.loadTexture("assets/0.png") );
-	Card.setTexture(CardRank.ONE, renderer.loadTexture("assets/1.png") );
-	Card.setTexture(CardRank.TWO, renderer.loadTexture("assets/2.png") );
-	Card.setTexture(CardRank.THREE, renderer.loadTexture("assets/3.png") );
-	Card.setTexture(CardRank.FOUR, renderer.loadTexture("assets/4.png") );
-	Card.setTexture(CardRank.FIVE, renderer.loadTexture("assets/5.png") );
-	Card.setTexture(CardRank.SIX, renderer.loadTexture("assets/6.png") );
-	Card.setTexture(CardRank.SEVEN, renderer.loadTexture("assets/7.png") );
-	Card.setTexture(CardRank.EIGHT, renderer.loadTexture("assets/8.png") );
-	Card.setTexture(CardRank.NINE, renderer.loadTexture("assets/9.png") );
-	Card.setTexture(CardRank.TEN, renderer.loadTexture("assets/10.png") );
-	Card.setTexture(CardRank.ELEVEN, renderer.loadTexture("assets/11.png") );
-	Card.setTexture(CardRank.TWELVE, renderer.loadTexture("assets/12.png") );
-	Card.setTexture(CardRank.UNKNOWN, renderer.loadTexture("assets/back-grad.png") );
+	Card.setTexture(CardRank.NEGATIVE_TWO, renderer.loadTexture(assetPath ~ "-2.png") );
+	Card.setTexture(CardRank.NEGATIVE_ONE, renderer.loadTexture(assetPath ~ "-1.png") );
+	Card.setTexture(CardRank.ZERO, renderer.loadTexture(assetPath ~ "0.png") );
+	Card.setTexture(CardRank.ONE, renderer.loadTexture(assetPath ~ "1.png") );
+	Card.setTexture(CardRank.TWO, renderer.loadTexture(assetPath ~ "2.png") );
+	Card.setTexture(CardRank.THREE, renderer.loadTexture(assetPath ~ "3.png") );
+	Card.setTexture(CardRank.FOUR, renderer.loadTexture(assetPath ~ "4.png") );
+	Card.setTexture(CardRank.FIVE, renderer.loadTexture(assetPath ~ "5.png") );
+	Card.setTexture(CardRank.SIX, renderer.loadTexture(assetPath ~ "6.png") );
+	Card.setTexture(CardRank.SEVEN, renderer.loadTexture(assetPath ~ "7.png") );
+	Card.setTexture(CardRank.EIGHT, renderer.loadTexture(assetPath ~ "8.png") );
+	Card.setTexture(CardRank.NINE, renderer.loadTexture(assetPath ~ "9.png") );
+	Card.setTexture(CardRank.TEN, renderer.loadTexture(assetPath ~ "10.png") );
+	Card.setTexture(CardRank.ELEVEN, renderer.loadTexture(assetPath ~ "11.png") );
+	Card.setTexture(CardRank.TWELVE, renderer.loadTexture(assetPath ~ "12.png") );
+	Card.setTexture(CardRank.UNKNOWN, renderer.loadTexture(assetPath ~ "back-grad.png") );
 
-	dealSound = loadWAV("assets/playcard.wav");
-	flipSound = loadWAV("assets/cardPlace3.wav");
-	discardSound = loadWAV("assets/cardShove1.wav");
-	drawSound = loadWAV("assets/draw.wav");
-	yourTurnSound = loadWAV("assets/cuckoo.wav");
-	lastTurnSound = loadWAV("assets/UI_007.wav");
+	dealSound = loadWAV(assetPath ~ "playcard.wav");
+	flipSound = loadWAV(assetPath ~ "cardPlace3.wav");
+	discardSound = loadWAV(assetPath ~ "cardShove1.wav");
+	drawSound = loadWAV(assetPath ~ "draw.wav");
+	yourTurnSound = loadWAV(assetPath ~ "cuckoo.wav");
+	lastTurnSound = loadWAV(assetPath ~ "UI_007.wav");
 }
 
 SDL_Cursor* createCursor(SDL_SystemCursor c) @trusted nothrow @nogc
@@ -427,6 +505,8 @@ void masterLoop(ref Window window,
 	addClickable(nameTextField);
 	addClickable(serverTextField);
 
+	// SDL_Log( ("gl swap interval= " ~ SDL_GL_GetSwapInterval().to!string).toStringz );
+
 	mainLoop(window, renderer, quit, controller);
 }
 
@@ -438,18 +518,45 @@ void mainLoop(ref Window window,
 	MonoTime currentTime;
 	MonoTime lastTime = MonoTime.currTime();
 
+	() @trusted { GC.disable(); } ();
+
 	while (! quit)
 	{
-		currentTime = MonoTime.currTime();
-		auto elapsed = currentTime - lastTime;
+		version (Android) {
+			// enum long frameTimeNsecs = 16_666_666;
+			// bool result;
 
-		if ( elapsed < dur!"usecs"(16_600) )
-		{
-			sleepFor(dur!"usecs"(16_600) - elapsed);   // limits the framerate to ~60 fps
+			// SDL_SysWMinfo info;
+			// () @trusted { SDL_VERSION(&info.version_); SDL_GetWindowWMInfo(window.raw_window, &info); } ();
+
+			// currentTime = MonoTime.currTime();
+			
+			// if ( abs(androidPresentationTime - currentTime.ticks) > frameTimeNsecs * 4 )
+			// {
+			// 	androidPresentationTime = currentTime.ticks + frameTimeNsecs * 2;
+			// }
+			// else 
+			// {
+			// 	androidPresentationTime += 2 * frameTimeNsecs;
+			// }
+			// () @trusted { result = eglPresentationTimeANDROID(SDL_GetEGLDisplay(), info.info.android.surface,
+			//               androidPresentationTime); SDL_Log("%d", result); } ();
 		}
-		currentTime = MonoTime.currTime();
-		elapsed = currentTime - lastTime;
-		lastTime = currentTime;
+		else
+		{
+			currentTime = MonoTime.currTime();
+			auto elapsed = currentTime - lastTime;
+
+			enum microseconds = 16_600;  // limits the framerate to ~60 fps
+
+			if ( elapsed < dur!"usecs"(microseconds) )
+			{
+				sleepFor( dur!"usecs"(microseconds) - elapsed);
+			}
+			currentTime = MonoTime.currTime();
+			elapsed = currentTime - lastTime;
+			lastTime = currentTime;
+		}
 
 		pollServer();
 		pollInputEvents(quit, controller, renderer);
@@ -464,13 +571,21 @@ void mainLoop(ref Window window,
 
 		if ( moveAnim.process() )
 		{
+			static bool gcRun = true;
+
 			if (numberOfAnimations > 0) {
 				--numberOfAnimations;
+				gcRun = false;
 			}
 
 			while (numberOfAnimations == 0 && ! pendingActions.empty) {
 				( pendingActions.front() )();
 				pendingActions.removeFront();
+			}
+
+			if (numberOfAnimations == 0 && pendingActions.empty && gcRun == false) {
+				() @trusted { GC.collect(); } ();
+				gcRun = true;
 			}
 		}
 

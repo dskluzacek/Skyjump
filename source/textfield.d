@@ -40,7 +40,7 @@ final class TextField : TextComponent, Focusable, Clickable
         bool isVisible = true;
         bool isEnabled = true;
         bool hovered;
-        bool receivingInput;
+        bool _receivingInput;
         size_t cursorPosition;
     }
 
@@ -73,13 +73,16 @@ final class TextField : TextComponent, Focusable, Clickable
             receivingInput = false;
 
             if (hovered) {
-                SDL_SetCursor(defaultCursor);
+                version (Android) {}
+                else {
+                    SDL_SetCursor(defaultCursor);
+                }
                 hovered = false;
             }
         }
     }
 
-    bool enabled() @property pure nothrow @nogc
+    bool enabled() @property const pure nothrow @nogc 
     {
         return isEnabled;
     }
@@ -90,6 +93,21 @@ final class TextField : TextComponent, Focusable, Clickable
 
         if (! visible) {
             enabled(false);
+        }
+    }
+
+    void receivingInput(bool value) @property nothrow @nogc @trusted
+    {
+        _receivingInput = value;
+
+        version (Android)
+        {
+            if (value) {
+                SDL_StartTextInput();
+            }
+            else {
+                SDL_StopTextInput();
+            }
         }
     }
 
@@ -112,7 +130,7 @@ final class TextField : TextComponent, Focusable, Clickable
         renderer.setDrawColor(255, 255, 255);
         renderer.fillRectangle(box);
 
-        if (receivingInput) {
+        if (_receivingInput) {
             renderer.setDrawColor(highlight_yellow[]);
         }
         else {
@@ -122,9 +140,12 @@ final class TextField : TextComponent, Focusable, Clickable
 
         renderer.drawRectangle(box);
         renderer.drawRectangle(Rectangle(box.x + 1, box.y + 1, box.w - 2, box.h - 2));
-        renderer.renderCopy(renderedText, textPos.x, textPos.y);
 
-        if (receivingInput)
+        if (! renderedText.isNull) {
+            renderer.renderCopy(renderedText, textPos.x, textPos.y);
+        }
+
+        if (_receivingInput)
         {
             int width;
 
@@ -138,7 +159,7 @@ final class TextField : TextComponent, Focusable, Clickable
 
     override bool acceptingTextInput() pure nothrow
     {
-        return receivingInput;
+        return _receivingInput;
     }
 
     override void inputEvent(SDL_TextInputEvent e, ref Renderer r) @trusted
@@ -191,7 +212,7 @@ final class TextField : TextComponent, Focusable, Clickable
             if (text.length == 0 || cursorPosition >= text.length) {
                 return true;
             }
-            else if (cursorPosition == text.length - 1) {
+            else if (cursorPosition == text.length - 1) {  //@suppress(dscanner.suspicious.length_subtraction)
                 text.length -= 1;
             }
             else {
@@ -241,7 +262,7 @@ final class TextField : TextComponent, Focusable, Clickable
             receivingInput = true;
             placeCursor(p);
         }
-        else
+        else if (_receivingInput)
         {
             receivingInput = false;
         }
@@ -251,14 +272,22 @@ final class TextField : TextComponent, Focusable, Clickable
     {
         if ( isEnabled && box.containsPoint( p) )
         {
-            if (! hovered) {
-                SDL_SetCursor( hoverCursor);
+            version (Android) {}
+            else {
+                if (! hovered) {
+                    SDL_SetCursor(hoverCursor);
+                }
             }
+
             hovered = true;
         }
         else if (hovered)
         {
-            SDL_SetCursor( defaultCursor);
+            version (Android) {}
+            else {
+                SDL_SetCursor(defaultCursor);
+            }
+
             hovered = false;
         }
     }
@@ -279,7 +308,7 @@ final class TextField : TextComponent, Focusable, Clickable
         receiveFocus();
     }
 
-    override void loseFocus() pure nothrow @nogc
+    override void loseFocus() nothrow @nogc
     {
         receivingInput = false;
     }
@@ -328,7 +357,7 @@ final class TextField : TextComponent, Focusable, Clickable
             distance = measured;
         }
 
-        cursorPosition = text.length - 1;
+        cursorPosition = text.length - 1;  //@suppress(dscanner.suspicious.length_subtraction)
     }
 
     private void renderText(ref Renderer rndr) @trusted
@@ -344,7 +373,8 @@ final class TextField : TextComponent, Focusable, Clickable
         }
         else
         {
-            Surface surface = TTF_RenderUTF8_Shaded(font, text.toStringz, SDL_Color(0, 0, 0, 255), SDL_Color(255, 255, 255, 255));
+            Surface surface = TTF_RenderUTF8_Shaded(
+                font, text.toStringz, SDL_Color(0, 0, 0, 255), SDL_Color(255, 255, 255, 255));  
             renderedText = createTextureFromSurface(rndr, surface);
             SDL_FreeSurface(surface);
         }

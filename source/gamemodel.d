@@ -423,7 +423,7 @@ struct ServerGameModel
             return;
         }
 
-        forEachOtherObserver!( obs => obs.changeTurn(playerCurrentTurn) );
+        this.forEachOtherObserver!( obs => obs.changeTurn(playerCurrentTurn) );
         (cast(ServerPlayer) players[playerCurrentTurn]).observer().yourTurn();
     }
 
@@ -504,7 +504,7 @@ struct ServerGameModel
         }
 
         drawnCard = c.get;
-        forEachOtherObserver!( obs => obs.drawpile(playerCurrentTurn) );
+        this.forEachOtherObserver!( obs => obs.drawpile(playerCurrentTurn) );
         return drawnCard;
     }
 
@@ -543,7 +543,7 @@ struct ServerGameModel
             beginTurn();
         }
 
-        forEachOtherObserver!( obs => obs.drawpileReject(playerCurrentTurn, drawnCard.rank) );
+        this.forEachOtherObserver!( obs => obs.drawpileReject(playerCurrentTurn, drawnCard.rank) );
     }
 
     void takeDiscardCard(int row, int col)
@@ -674,7 +674,7 @@ struct ServerGameModel
                 (cast(ServerPlayer) players[playerCurrentTurn]).observer().resumeDraw();
             }
 
-            forEachOtherObserver!( obs => obs.changeTurn(playerCurrentTurn) );
+            this.forEachOtherObserver!( obs => obs.changeTurn(playerCurrentTurn) );
         }
         else if (currentState == GameState.FLIP_CHOICE)
         {
@@ -822,13 +822,14 @@ struct ServerGameModel
         observers.each!( obs => obs.lastTurn(playerCurrentTurn) );
     }
 
-    private void forEachOtherObserver(alias fn)()
+}
+
+private void forEachOtherObserver(alias fn)(ref ServerGameModel model)
+{
+    foreach (obs; model.observers)
     {
-        foreach (obs; observers)
-        {
-            if (obs.player !is players[playerCurrentTurn]) {
-                fn(obs);
-            }
+        if (obs.player !is model.players[model.playerCurrentTurn]) {
+            fn(obs);
         }
     }
 }
