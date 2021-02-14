@@ -1,14 +1,12 @@
 module sdl2.sdl;
 
-public import derelict.sdl2.sdl,
-              derelict.util.exception;
+public import bindbc.sdl;
 import std.conv,
        std.string,
        std.typecons;
-import derelict.sdl2.image,
-       derelict.sdl2.ttf,
-       derelict.sdl2.mixer,
-       derelict.sdl2.net;
+import bindbc.sdl,
+       bindbc.sdl.ttf,
+       bindbc.sdl.mixer;
 
 /// alias Point = SDL_Point
 alias Point = SDL_Point;
@@ -23,19 +21,18 @@ alias Surface = SDL_Surface*;
 abstract final class SDL2
 {
     /**
-     * Loads the SDL2 shared library using Derelict and does SDL_Init().
+     * Loads the SDL2 shared library and does SDL_Init().
      *
      * Params:
      *        flags = the flags to initialize SDL with (passed to SDL_Init)
      * Throws:
-     *        SDL2Exception on failure of SDL_Init. $(BR)
-     *        DerelictException if loading the library fails.
+     *        SDL2Exception on failure of SDL_Init.
      */
     static void start(uint flags) @trusted
     {
-        DerelictSDL2.load();
-        auto result = SDL_Init(flags);
+        loadSDL();
 
+        auto result = SDL_Init(flags);
         sdl2Enforce(result == 0, "SDL_Init failed");
     }
 

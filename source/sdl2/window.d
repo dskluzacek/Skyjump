@@ -22,7 +22,7 @@ struct Window
 	this( in char[] title,
 		  int x, int y,
 		  int width, int height,
-		  uint flags = 0 )
+		  SDL_WindowFlags flags = cast(SDL_WindowFlags) 0 )
 	{
 		this.raw_window = SDL_CreateWindow(title.toStringz, x, y, width, height, flags);
 		
@@ -45,7 +45,7 @@ struct Window
 		}
 	}
 	
-	Renderer createRenderer(uint flags, int index = -1)
+	Renderer createRenderer(SDL_RendererFlags flags, int index = -1)
 	{
 		auto raw = SDL_CreateRenderer(raw_window, index, flags);
 		
@@ -130,7 +130,7 @@ nothrow:
 	
 	void setBordered(bool bordered)
 	{
-		SDL_SetWindowBordered(raw_window, bordered);
+		SDL_SetWindowBordered(raw_window, bordered ? SDL_TRUE : SDL_FALSE);
 	}
 	
 	void setFullscreen(uint flag)
@@ -140,7 +140,7 @@ nothrow:
 	
 	void setInputGrabbed(bool grabbed)
 	{
-		SDL_SetWindowGrab(raw_window, grabbed);
+		SDL_SetWindowGrab(raw_window, grabbed ? SDL_TRUE : SDL_FALSE);
 	}
 	
 	void setPosition(int x, int y)

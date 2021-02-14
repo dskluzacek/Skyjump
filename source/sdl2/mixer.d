@@ -1,7 +1,7 @@
 module sdl2.mixer;
 
 import std.string : toStringz;
-import derelict.sdl2.mixer;
+import bindbc.sdl.mixer;
 import sdl2.sdl;
 
 /// alias Sound = Mix_Chunk*
@@ -9,10 +9,10 @@ alias Sound = Mix_Chunk*;
 
 void initSDL_mixer() @trusted
 {
-	DerelictSDL2Mixer.load();
+	loadSDLMixer();
 }
 
-void openAudio( int frequency = 44100,
+void openAudio( int frequency = 44_100,
                 ushort format = MIX_DEFAULT_FORMAT,
                 int channels = 2,
                 int chunkSize = 2048 ) @trusted

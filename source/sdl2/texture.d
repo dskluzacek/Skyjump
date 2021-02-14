@@ -6,7 +6,7 @@ import sdl2.sdl,
        sdl2.renderer;
 
 /// Provides convenient D-style usage of the SDL_TextureAccess enum.
-enum TextureAccess
+enum TextureAccess : SDL_TextureAccess
 {
 	STATIC = SDL_TEXTUREACCESS_STATIC,
 	STREAMING = SDL_TEXTUREACCESS_STREAMING,

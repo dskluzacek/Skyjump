@@ -3,7 +3,7 @@ module sdl2.renderer;
 import std.traits : Unqual;
 import std.typecons : Tuple, tuple;
 import std.string : toStringz;
-import derelict.sdl2.image;
+import bindbc.sdl.image;
 import sdl2.sdl, sdl2.window, sdl2.texture;
 
 /// Provides convenient D-style usage of the SDL_RendererFlip enum.

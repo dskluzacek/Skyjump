@@ -1,12 +1,12 @@
 module sdl2.image;
 
 import std.string : toStringz;
-import derelict.sdl2.image;
+import bindbc.sdl.image;
 import sdl2.sdl;
 
-void initSDL_image(int flags = IMG_INIT_PNG) @trusted
+void initSDL_image(int flags = IMG_INIT_PNG | IMG_INIT_JPG) @trusted
 {
-	DerelictSDL2Image.load();
+	loadSDLImage();
 	
 	// returns flags successfully initialized
 	auto result = IMG_Init(flags);
