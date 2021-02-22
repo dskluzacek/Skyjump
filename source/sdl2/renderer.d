@@ -3,6 +3,8 @@ module sdl2.renderer;
 import std.traits : Unqual;
 import std.typecons : Tuple, tuple;
 import std.string : toStringz;
+import std.exception : enforce;
+
 import bindbc.sdl.image;
 import sdl2.sdl, sdl2.window, sdl2.texture;
 
@@ -27,21 +29,20 @@ struct Renderer
 		bool isDestroyed = false;
 	}
 
-@trusted:
-@nogc:
-nothrow:	
+@trusted: //stfu
 	
 	this(SDL_Renderer* rawRenderer) pure @safe
-	in {
-		assert(rawRenderer !is null);
-	}
-	body
 	{
+		enforce!Error(rawRenderer !is null);
+	
 		this.raw_renderer = rawRenderer;
 	}
 	
 	@disable this(this);
 	
+@nogc:
+nothrow:	
+
 	~this()
 	{
 		dispose();

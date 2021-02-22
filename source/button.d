@@ -11,7 +11,12 @@ import card : pale_indigo, highlight_yellow;
 
 class Button : Clickable, Focusable
 {
-    mixin MouseUpActivation;
+    version (Android) {
+        mixin MouseDownActivation;    
+    }
+    else {
+        mixin MouseUpActivation;
+    }
     mixin BasicFocusable;
     mixin ConfigFocusable;
 
@@ -75,7 +80,7 @@ class Button : Clickable, Focusable
         label.draw(renderer);
     }
 
-    override bool focusEnabled()
+    override bool focusEnabled() const
     {
         return this.enabled();
     }

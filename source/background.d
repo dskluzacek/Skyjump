@@ -1,12 +1,13 @@
 module background;
 @safe:
 
+import std.exception : enforce;
 import sdl2.sdl;
 import sdl2.texture;
 import sdl2.window;
 import sdl2.renderer;
 
-final class Background
+struct Background
 {
     private Texture texture;
 
@@ -17,6 +18,8 @@ final class Background
 
     void render(ref Renderer rndr, ref Window window)
     {
+        enforce!Error(! texture.isNull);
+        
         auto windowDim = window.dimensions;
         auto textureDim = texture.dimensions;
 

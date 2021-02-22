@@ -1,9 +1,12 @@
 module textfield;
 @safe:
 
-import std.string : toStringz, fromStringz;
+import std.conv : to;
+import std.string : fromStringz;
+import std.utf : toUTFz;
 import std.typecons : tuple;
 import std.math : abs;
+import std.exception : enforce;
 
 import sdl2.sdl,
        sdl2.renderer,
@@ -13,6 +16,10 @@ import util;
 import card : highlight_yellow;
 
 enum light_gray = tuple(192, 192, 192);
+
+version (Android) {
+    enum y_position_receiving_input = 30;
+}
 
 interface TextComponent
 {
@@ -24,6 +31,11 @@ interface TextComponent
 final class TextField : TextComponent, Focusable, Clickable
 {
     mixin ConfigFocusable;
+    
+    version (Android) {
+        mixin Observable!"textInputStarted";
+        mixin Observable!"textInputEnded";
+    }
 
     private
     {
@@ -33,7 +45,7 @@ final class TextField : TextComponent, Focusable, Clickable
         SDL_Cursor* defaultCursor;
         SDL_Cursor* hoverCursor;
         Focusable onEnterItem;
-        char[] text;
+        dchar[] text;
         int maxLength = -1;
         int padding;
         int fontHeight;
@@ -42,29 +54,39 @@ final class TextField : TextComponent, Focusable, Clickable
         bool hovered;
         bool _receivingInput;
         size_t cursorPosition;
+
+        version (Android) {
+            int yPosition;
+        }
     }
 
     this(Font font, Rectangle box, int padding, SDL_Cursor* defaultCursor, SDL_Cursor* hoverCursor)
     {
+        enforce!Error(font !is null);
+        
         this.font = font;
         this.box = box;
         this.padding = padding;
         this.defaultCursor = defaultCursor;
         this.hoverCursor = hoverCursor;
+
+        version (Android) {
+            yPosition = box.y;
+        }
     }
 
     void setText(string text, ref Renderer renderer)
     {
-        this.text = text.dup;
+        this.text = text.to!(dchar[]);
         renderText(renderer);
     }
 
-    string getText() pure nothrow
+    string getText() const pure
     {
-        return text.idup;
+        return text.to!string;
     }
 
-    void enabled(bool value) @property nothrow @nogc @trusted
+    void enabled(bool value) @property @trusted
     {
         isEnabled = value;
 
@@ -87,7 +109,7 @@ final class TextField : TextComponent, Focusable, Clickable
         return isEnabled;
     }
 
-    void visible(bool visible) @property nothrow @nogc
+    void visible(bool visible) @property
     {
         this.isVisible = visible;
 
@@ -96,19 +118,22 @@ final class TextField : TextComponent, Focusable, Clickable
         }
     }
 
-    void receivingInput(bool value) @property nothrow @nogc @trusted
+    void receivingInput(bool value) @property @trusted
     {
-        _receivingInput = value;
-
         version (Android)
         {
             if (value) {
+                notifyObservers!"textInputStarted"();
+                box.y = y_position_receiving_input;
                 SDL_StartTextInput();
             }
-            else {
+            else if (_receivingInput) {
                 SDL_StopTextInput();
+                notifyObservers!"textInputEnded"();
+                box.y = yPosition;
             }
         }
+        _receivingInput = value;
     }
 
     void maxTextLength(int max) @property pure nothrow @nogc
@@ -121,7 +146,7 @@ final class TextField : TextComponent, Focusable, Clickable
         this.onEnterItem = f;
     }
 
-    void draw(ref Renderer renderer) @trusted nothrow
+    void draw(ref Renderer renderer) @trusted
     {
         if (! isVisible) {
             return;
@@ -150,7 +175,7 @@ final class TextField : TextComponent, Focusable, Clickable
             int width;
 
             if (cursorPosition > 0 || fontHeight == 0) {
-                TTF_SizeText(font, text[0 .. cursorPosition].toStringz, &width, &fontHeight);
+                TTF_SizeUTF8(font, text[0 .. cursorPosition].toUTFz!(char*), &width, &fontHeight);
             }
             renderer.setDrawColor(0, 0, 0);
             renderer.fillRectangle(Rectangle(textPos.x + width - 1, textPos.y, 3, fontHeight));
@@ -164,7 +189,7 @@ final class TextField : TextComponent, Focusable, Clickable
 
     override void inputEvent(SDL_TextInputEvent e, ref Renderer r) @trusted
     {
-        auto str = fromStringz( &e.text[0] );
+        auto str = fromStringz( &e.text[0] ).to!(dchar[]);
 
         if (str == "\t" || str == "\n" || str == "\r\n" || str == "\r") {
             return;
@@ -255,9 +280,15 @@ final class TextField : TextComponent, Focusable, Clickable
         return false;
     }
 
-    override void mouseButtonDown(Point p) nothrow
+    override void mouseButtonDown(Point p)
     {
-        if ( isEnabled && box.containsPoint(p) )
+        bool fieldContainsPoint = box.containsPoint(p);
+        
+        if (_receivingInput && fieldContainsPoint)
+        {
+            placeCursor(p);
+        }
+        else if (isEnabled && fieldContainsPoint)
         {
             receivingInput = true;
             placeCursor(p);
@@ -268,31 +299,32 @@ final class TextField : TextComponent, Focusable, Clickable
         }
     }
 
-    override void mouseMoved(Point p) nothrow @nogc @trusted
+    override void mouseMoved(Point p) @trusted
     {
-        if ( isEnabled && box.containsPoint( p) )
-        {
-            version (Android) {}
-            else {
-                if (! hovered) {
+        version (Android) {
+            if ( _receivingInput && box.containsPoint(p) )
+            {
+                placeCursor(p);
+            }
+        }
+        else {    
+            if ( isEnabled && box.containsPoint( p) )
+            {
+                if (! hovered)
+                {
                     SDL_SetCursor(hoverCursor);
                 }
+                hovered = true;
             }
-
-            hovered = true;
-        }
-        else if (hovered)
-        {
-            version (Android) {}
-            else {
+            else if (hovered)
+            {
                 SDL_SetCursor(defaultCursor);
+                hovered = false;
             }
-
-            hovered = false;
         }
     }
 
-    override bool focusEnabled()
+    override bool focusEnabled() const
     {
         return enabled();
     }
@@ -308,7 +340,7 @@ final class TextField : TextComponent, Focusable, Clickable
         receiveFocus();
     }
 
-    override void loseFocus() nothrow @nogc
+    override void loseFocus()
     {
         receivingInput = false;
     }
@@ -317,7 +349,7 @@ final class TextField : TextComponent, Focusable, Clickable
     {
     }
 
-    override void mouseButtonUp(Point p) pure nothrow @nogc
+    override void mouseButtonUp(Point p)
     {
     }
 
@@ -329,7 +361,7 @@ final class TextField : TextComponent, Focusable, Clickable
     {
     }
 
-    private void placeCursor(Point p) @trusted nothrow
+    private void placeCursor(Point p) @trusted
     {
         if (text.length == 0) {
             cursorPosition = 0;
@@ -337,7 +369,7 @@ final class TextField : TextComponent, Focusable, Clickable
         }
         int x = p.x - (box.x + padding);
         int width;
-        TTF_SizeText(font, text.toStringz, &width, null);
+        TTF_SizeUTF8(font, text.toUTFz!(char*), &width, null);
 
         if (x >= width) {
             cursorPosition = text.length;
@@ -347,7 +379,7 @@ final class TextField : TextComponent, Focusable, Clickable
 
         foreach (i; 1 .. text.length)
         {
-            TTF_SizeText(font, text[0 .. i].toStringz, &width, null);
+            TTF_SizeUTF8(font, text[0 .. i].toUTFz!(char*), &width, null);
             int measured = abs(x - width);
 
             if (measured > distance) {
@@ -373,10 +405,12 @@ final class TextField : TextComponent, Focusable, Clickable
         }
         else
         {
-            Surface surface = TTF_RenderUTF8_Shaded(
-                font, text.toStringz, SDL_Color(0, 0, 0, 255), SDL_Color(255, 255, 255, 255));  
+            Surface surface;
+            scope(exit) SDL_FreeSurface(surface);
+            
+            surface = TTF_RenderUTF8_Shaded(font,
+                text.toUTFz!(char*), SDL_Color(0, 0, 0, 255), SDL_Color(255, 255, 255, 255));  
             renderedText = createTextureFromSurface(rndr, surface);
-            SDL_FreeSurface(surface);
         }
     }
 }

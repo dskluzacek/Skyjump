@@ -1,7 +1,8 @@
 module sdl2.texture;
 
-import std.conv,
-       std.typecons;
+import std.conv : to;
+import std.typecons;
+import std.exception : enforce;
 import sdl2.sdl,
        sdl2.renderer;
 
@@ -18,13 +19,11 @@ struct Texture
 {
 	private SDL_Texture* raw_texture;
 
-@trusted:
-@nogc:
-nothrow:
+@trusted: //stfu
 
 	this(SDL_Texture* rawTexture) pure @safe
 	{
-		assert(rawTexture !is null);
+		enforce!Error(rawTexture !is null);
 		
 		this.raw_texture = rawTexture;
 	}
@@ -32,19 +31,19 @@ nothrow:
 	void setBlendMode(SDL_BlendMode mode)
 	{
 		auto result = SDL_SetTextureBlendMode(raw_texture, mode);
-		assert(result == 0, getSDL2Error());
+		enforce(result == 0, getSDL2Error());
 	}
 	
 	void setAlphaMod(ubyte alpha)
 	{
 		auto result = SDL_SetTextureAlphaMod(raw_texture, alpha);
-		assert(result == 0, getSDL2Error());
+		enforce(result == 0, getSDL2Error());
 	}
 	
 	void setColorMod(ubyte red, ubyte green, ubyte blue)
 	{
 		auto result = SDL_SetTextureColorMod(raw_texture, red, green, blue);
-		assert(result == 0, getSDL2Error());
+		enforce(result == 0, getSDL2Error());
 	}
 	
 	void[] lockTexture()(auto ref const Rectangle rect)  
@@ -53,10 +52,13 @@ nothrow:
 		int pitch;
 		
 		int result = SDL_LockTexture(raw_texture, &rect, &pixels, &pitch);
-		assert(result == 0, getSDL2Error());
+		enforce(result == 0, getSDL2Error());
 		
 		return pixels[0 .. (pitch * rect.w)];
 	}
+
+@nogc:
+nothrow:
 	
 	void unlockTexture()
 	{
@@ -76,21 +78,21 @@ nothrow:
 		SDL_QueryTexture(raw_texture, null, null, &width, &height);
 	}
 	
-	Tuple!(int, "w", int, "h") dimensions() @property
+	Tuple!(int, "w", int, "h") dimensions()
 	{
 		Tuple!(int, "w", int, "h") tup;
 		queryTexture(tup.w, tup.h);
 		return tup;
 	}
 	
-	int width() @property
+	int width()
 	{
 		int width;
 		SDL_QueryTexture(raw_texture, null, null, &width, null);
 		return width;
 	}
 	
-	int height() @property
+	int height()
 	{
 		int height;
 		SDL_QueryTexture(raw_texture, null, null, null, &height);
@@ -107,26 +109,26 @@ nothrow:
 		return tuple!("format", "accessType")(format, access);
 	}
 	
-	uint pixelFormat() @property
+	uint pixelFormat()
 	{
 		uint format;
 		SDL_QueryTexture(raw_texture, &format, null, null, null);
 		return format;
 	}
 	
-	TextureAccess accessType() @property
+	TextureAccess accessType()
 	{
 		TextureAccess access;
 		SDL_QueryTexture(raw_texture, null, cast(int*) &access, null, null);
 		return access;
 	}
 	
-	bool isNull() @property pure
+	bool isNull() pure
 	{
 		return (raw_texture is null);
 	}
 	
-	SDL_Texture* rawPtr() @property pure
+	SDL_Texture* rawPtr() pure
 	{
 		return raw_texture;
 	}

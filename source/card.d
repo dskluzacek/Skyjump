@@ -13,10 +13,14 @@ import sdl2.texture;
 import sdl2.renderer;
 
 import util : drawBorder;
+import playergrid : card_large_width, card_large_height, card_medium_width, card_medium_height;
 
 enum highlight_yellow = tuple(255, 255, 165);
 enum pale_indigo = tuple(162, 165, 198);
 enum magenta = tuple(255, 0, 255);
+
+enum medium_shadow_width  = 101,
+     medium_shadow_height = 140;
 
 enum CardRank : byte
 {
@@ -44,6 +48,8 @@ final class Card
     private bool _revealed;
 
     private static Texture[CardRank] cardTextures;
+    private static Texture shadowTexture;
+    private static Texture stackShadowTexture;
 
     this(CardRank rank) pure nothrow
     {
@@ -83,13 +89,14 @@ final class Card
         }
     }
 
-    void draw(ref Renderer rndr, Rectangle rect, Highlight highlight = Highlight.OFF) const
+    void draw(ref Renderer rndr, Rectangle rect,
+              Highlight highlight = Highlight.OFF, Shadow shadow = Shadow.OFF) const
     {
         draw(rndr, Point(rect.x, rect.y), rect.w, rect.h, highlight);
     }
 
-    void draw(ref Renderer renderer,
-        Point position, int width, int height, Highlight highlight = Highlight.OFF) const
+    void draw(ref Renderer renderer, Point position, int width, int height,
+              Highlight highlight = Highlight.OFF, Shadow shadow = Shadow.OFF) const
     {
         Texture texture;
 
@@ -98,6 +105,20 @@ final class Card
         }
         else {
             texture = cardTextures[CardRank.UNKNOWN];
+        }
+
+        if ((highlight == Highlight.OFF || highlight == Highlight.HOVER) && shadow == Shadow.ON)
+        {
+            if (width == card_large_width && height == card_large_height) {
+                renderer.renderCopy(shadowTexture, position.x, position.y);
+            }
+            else if (width == card_medium_width && height == card_medium_height) {
+                renderer.renderCopy(shadowTexture, position.x, position.y - 1,
+                                    medium_shadow_width, medium_shadow_height);
+            }
+        }
+        else if (shadow == Shadow.STACK) {
+            renderer.renderCopy(stackShadowTexture, position.x, position.y);
         }
 
         if (highlight == Highlight.HOVER || highlight == Highlight.HAS_FOCUS) {
@@ -128,6 +149,16 @@ final class Card
         cardTextures[rank] = texture;
     }
 
+    static setShadowTexture(Texture texture) nothrow @nogc
+    {
+        shadowTexture = texture;
+    }
+
+    static setStackShadowTexture(Texture texture) nothrow @nogc
+    {
+        stackShadowTexture = texture;
+    }
+
     enum Highlight
     {
         OFF,
@@ -137,6 +168,13 @@ final class Card
         HAS_FOCUS_MOUSE_MOVED,
         PLACE,
         SELECTED_HOVER
+    }
+
+    enum Shadow
+    {
+        OFF,
+        ON,
+        STACK
     }
 }
 
@@ -270,7 +308,7 @@ final class DiscardStack
         return cards;
     }
 
-    auto size() pure nothrow
+    size_t size() const pure nothrow
     {
         return cards.length;
     }

@@ -4,6 +4,7 @@ module server;
 import std.stdio;
 import std.algorithm : each, remove, all, count;
 import std.conv;
+import std.string : join;
 import std.uni : toLower;
 import std.array : split;
 import std.concurrency;
@@ -23,7 +24,7 @@ enum ushort PORT = 7684;
 enum BACKLOG = 5;
 enum MAX_PLAYERS = 5;
 
-enum VERSION_STR = "0.0.3";
+enum VERSION_STR = "0.0.4";
 
 private
 {
@@ -104,6 +105,16 @@ void main() @system
                     writeMsg("Need player number");
                 }
             }
+            else if (args[0] == "setname")
+            {
+                if (args.length >= 2)
+                {
+                    setNameOfPlayer(args[1 .. $]);
+                }
+                else {
+                    writeMsg("Too few arguments");
+                }
+            }
             else if (args[0] == "set")
             {
                 if (args.length == 5)
@@ -160,6 +171,28 @@ void setCard(string[] args)
 
     model[index][row, col] = new Card(rank.to!CardRank);
     writeMsg();
+}
+
+void setNameOfPlayer(string[] args)
+{
+    try {
+        ubyte playerNum = args[0].to!ubyte;
+
+        foreach (client; clients)
+        {
+            if (model.playerNumberOf(client.player) == playerNum) {
+                auto newName = args[1 .. $].join(" ");
+                model.changePlayerName(model[playerNum], newName);
+                client.playerJoined(playerNum, newName);
+                writeMsg();
+                return;
+            }
+        }
+        writeMsg("No players with that number");
+    }
+    catch (ConvException e) {
+        writeMsg("Invalid number");
+    }
 }
 
 void startGame()
@@ -406,7 +439,9 @@ body
 
     if (playerNumber != -1)  // player was found in model
     {
-        player.setName(name);
+        if (player.getName != name) {
+            model.changePlayerName(player, name);
+        }
         player.client = client;
         client.player = player;
         client.waitingForJoin = false;
@@ -726,7 +761,7 @@ void closeAndWaitForReconnect(ConnectedClient client)
         model.removeObserver(client);
         model.waitForReconnect(p);
         p.client = null;
-        writeln("\nTerminating connection of " ~ p.getName ~ " (" ~ playerNumber ~ ')');
+        writeln("\nTerminating connection of ", p.getName, " (", playerNumber, ')');
         closeConnection(client);
     }
     else
@@ -737,11 +772,18 @@ void closeAndWaitForReconnect(ConnectedClient client)
 
 void closeConnection(ConnectedClient client)
 {
-    Socket s = client.socket();
-    auto remoteAddr = s.remoteAddress;
-    s.shutdown(SocketShutdown.BOTH);
-    s.close();
-    client.markForRemoval();
+    string remoteAddr;
+    
+    try {
+        Socket s = client.socket();
+        remoteAddr = s.remoteAddress.toString;
+        s.shutdown(SocketShutdown.BOTH);
+        s.close();
+        client.markForRemoval();
+    }
+    catch (SocketOSException e) {
+        write("\n", e.msg);
+    }
 
     writeMsg("\nClosed connection from ", remoteAddr);
 }

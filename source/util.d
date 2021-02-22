@@ -87,6 +87,63 @@ interface Clickable
 	@safe void mouseButtonUp(Point p);
 }
 
+mixin template MouseDownActivation()
+{
+	private
+	{
+		Rectangle box;
+		void delegate() @safe clickHandler;
+		bool isEnabled;
+		bool beingClicked;
+	}
+
+	void onClick(void delegate() @safe fn) @property pure nothrow @nogc
+	{
+		this.clickHandler = fn;
+	}
+
+	void enabled(bool value) @property pure nothrow @nogc
+	{
+		isEnabled = value;
+
+		if (value == false) {
+			beingClicked = false;
+		}
+	}
+
+	bool enabled() @property const pure nothrow @nogc
+	{
+		return isEnabled;
+	}
+
+	void setRectangle(Rectangle box) pure nothrow @nogc
+	{
+		this.box = box;
+	}
+
+	void mouseMoved(Point position) pure nothrow @nogc
+	{
+	}
+
+	void mouseButtonDown(Point position)
+	{
+		if ( isEnabled && box.containsPoint(position) ) {
+			beingClicked = true;
+			clickHandler();
+		}
+	}
+
+	void mouseButtonUp(Point position)
+	{
+		beingClicked = false;
+	}
+
+	bool shouldBeHighlighted() const pure nothrow @nogc
+	{
+		return beingClicked;
+	}
+}
+
 mixin template MouseUpActivation()
 {
 	private
@@ -111,7 +168,7 @@ mixin template MouseUpActivation()
 		isEnabled = value;
 	}
 
-	bool enabled() @property pure nothrow @nogc
+	bool enabled() @property const pure nothrow @nogc
 	{
 		return isEnabled;
 	}
@@ -152,8 +209,13 @@ mixin template MouseUpActivation()
 
 	bool shouldBeHighlighted() const pure nothrow @nogc
 	{
-		return isEnabled
-			&& ((mouseDown && beingClicked) || (!mouseDown && box.containsPoint(lastMousePosition)));
+		version (Android) {
+			return isEnabled && mouseDown && beingClicked;
+		}
+		else {
+			return isEnabled && ((mouseDown && beingClicked)
+					|| (!mouseDown && box.containsPoint(lastMousePosition)));
+		}
 	}
 }
 
@@ -301,7 +363,9 @@ mixin template BasicFocusable()
 	{
 		clickHandler();
 
-		mouseDown = false;
+		version (Android) { } else {
+			mouseDown = false;
+		}
 		beingClicked = false;
 	}
 
@@ -343,27 +407,27 @@ mixin template ConfigFocusable()
 		tabNext = f;
 	}
 
-	Focusable nextUp() @property
+	Focusable nextUp() @property //stfu
 	{
 		return above !is null && above.focusEnabled ? above : this;
 	}
 
-	Focusable nextDown() @property
+	Focusable nextDown() @property //stfu
 	{
 		return below !is null && below.focusEnabled ? below : this;
 	}
 
-	Focusable nextLeft() @property
+	Focusable nextLeft() @property //stfu
 	{
 		return left !is null && left.focusEnabled ? left : this;
 	}
 
-	Focusable nextRight() @property
+	Focusable nextRight() @property //stfu
 	{
 		return right !is null && right.focusEnabled ? right : this;
 	}
 
-	Focusable nextTab() @property
+	Focusable nextTab() @property //stfu
 	{
 		if (tabNext is null) {
 			return this;

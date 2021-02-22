@@ -117,7 +117,7 @@ struct MoveAnimation
         card.draw(renderer, Point(x, y), cast(int) width, cast(int) height);
         
         version (Android) {
-            if ((prevX != -1 || prevY != -1) && fraction != 1.0f) {
+            if (prevX >= 0 && prevY >= 0 && fraction < 1.0f) {
                 card.draw(renderer, Point(prevX, prevY), cast(int) width, cast(int) height);
             }
             prevX = x;
@@ -176,6 +176,11 @@ final class DealAnimation
             animation.end = grids[gridIndex].getCardDestination();
             animation.startTime = MonoTime.currTime();
             animation.onFinishedCalled = false;
+
+            version (Android) {
+                animation.prevX = -1;
+                animation.prevY = -1;
+            }
         }
 
         return false;

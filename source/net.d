@@ -1,7 +1,8 @@
 module net;
 @safe:
 
-import std.array : join;
+import std.array : array;
+import std.algorithm : joiner;
 import std.string;
 import std.socket;
 import std.typecons : Nullable, nullable, Tuple;
@@ -16,7 +17,7 @@ import playergrid;
 import card;
 
 enum BUFFER_SIZE = 96;
-enum MAX_NAME_LENGTH = 15;
+enum MAX_NAME_LENGTH = 14;
 
 final class ServerPlayer : PlayerImpl!PlayerGrid
 {
@@ -100,7 +101,7 @@ final class ConnectedClient : ServerGameModel.Observer
         return _socket;
     }
 
-    ServerPlayer player() @property pure nothrow @nogc
+    ServerPlayer player() @property pure nothrow @nogc //stfu
     {
         return _player;
     }
@@ -535,7 +536,7 @@ private Nullable!ServerMessage parseServerMessage(in char[] line)
         return (Nullable!ServerMessage).init;
     }
 
-    debug import std.stdio;
+    debug import std.stdio : writeln;
     debug writeln(line);
 
     auto words = line.split();
@@ -739,8 +740,9 @@ private:
 
     static ServerMessage gridCards(const(char)[][] args)
     {
+        assert(args.length > 0);
         enforce!ProtocolException(args.length == 13,
-                "expected 12 cards, received " ~ (args.length - 1).to!string ~ ": " ~ args.join(" ").idup);
+                "expected 12 cards, received " ~ (args.length - 1).to!string ~ ": " ~ args.join(" ").idup);  //@suppress(dscanner.suspicious.length_subtraction)
 
         Card[][] cardArr = new Card[][3];
         cardArr[0] = new Card[4];
@@ -808,7 +810,7 @@ enum ServerMessageType : string
 
 private auto parseArgs(M, T, Seq...)(T msgType, const(char)[][] args)
 {
-    static if (! is(Seq[Seq.length - 1] == string))
+    static if (! is(Seq[Seq.length - 1] == string))  //@suppress(dscanner.suspicious.length_subtraction)
     {
         if (args.length != Seq.length) {
             throw new ProtocolException((msgType ~ " - wrong number of parameters: " ~ args.join(" ")).idup);
@@ -820,12 +822,14 @@ private auto parseArgs(M, T, Seq...)(T msgType, const(char)[][] args)
     {
         static if ( is(Type == string) )
         {
-            result[i] = args[i .. $].join(" ").idup;
+            dchar[] value = args[i .. $].joiner(" ").array;  // rejoin words seperated by spaces
 
-            if (result[i].length > MAX_NAME_LENGTH) {
-                result[i] = result[i][0 .. MAX_NAME_LENGTH];
+            if (value.length > MAX_NAME_LENGTH) {
+                value = value[0 .. MAX_NAME_LENGTH];
             }
-            break;
+            result[i] = value.to!string;
+
+            break;  // strings must be last
         }
         else
         {

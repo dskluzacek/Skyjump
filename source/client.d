@@ -3,13 +3,12 @@ module client;
 
 import std.stdio;
 import std.algorithm;
-import std.string : strip;
+import std.string : strip, toStringz;
 import std.exception : enforce;
 import std.array;
 import std.typecons;
 import std.functional;
 import std.datetime : Clock;
-import std.string : toStringz;
 import std.socket;
 import std.conv;
 import std.container : DList;
@@ -42,8 +41,9 @@ import textfield;
 import theme;
 
 enum window_title = "Skyjump";
-enum version_str  = "v0.0.3";
+enum version_str  = "v0.0.4-debug";
 
+enum ushort port_number = 7684;
 enum connect_failed_str = "Failed to connect to server.";
 
 enum draw_pile_position = Point(692, 15);
@@ -57,21 +57,68 @@ enum discard_pile_rect = Rectangle(discard_pile_position.x, discard_pile_positio
 enum drawn_card_rect = Rectangle(drawn_card_position.x, drawn_card_position.y,
                                  card_large_width, card_large_height);
 
-enum cancel_button_dims = Rectangle(1248, 215, 120, 40);
-enum connect_button_dims = Rectangle(880, 620, 160, 40);
-enum felt_theme_btn_dims = Rectangle(1745, 1025, 160, 40);
-enum wood_theme_btn_dims = Rectangle(1615, 1025, 120, 40);
+version (Android) {
+	enum name_field_dims = Rectangle(690, 440, 1000, 100);
+	enum server_field_dims = Rectangle(690, 555, 1000, 100);
 
-enum name_field_dims = Rectangle(777, 490, 550, 50);
-enum server_field_dims = Rectangle(777, 550, 550, 50);
+	enum ui_font_size = 52;
+	enum medium_font_size = 64;
+	enum small_font_size = 48;
+	enum tiny_font_size = 34;
+	enum name_font_size = 48;
+	enum text_field_font_size = 72;
+
+	enum cancel_button_dims = Rectangle(1248, 175, 240, 80);
+	enum connect_button_dims = Rectangle(800, 680, 320, 80);
+	enum felt_theme_btn_dims = Rectangle(1585, 985, 320, 80);
+	enum wood_theme_btn_dims = Rectangle(1330, 985, 240, 80);
+
+	enum opp_grid_x = 88;
+	enum opp_grid_y = 15;
+	enum opp_grid_rt_x = 1417;
+	enum opp_grid_lower_y = 580;
+}
+else {
+	enum name_field_dims = Rectangle(777, 490, 550, 50);
+	enum server_field_dims = Rectangle(777, 550, 550, 50);
+
+	enum ui_font_size = 26;
+	enum large_font_size = 42;
+	enum medium_font_size = 32;
+	enum small_font_size = 24;
+	enum tiny_font_size = 20;
+	enum name_font_size = 37;
+	enum text_field_font_size = 36;
+
+	enum cancel_button_dims = Rectangle(1248, 215, 120, 40);
+	enum connect_button_dims = Rectangle(880, 620, 160, 40);
+	enum felt_theme_btn_dims = Rectangle(1745, 1025, 160, 40);
+	enum wood_theme_btn_dims = Rectangle(1615, 1025, 120, 40);
+
+	enum opp_grid_x = 40;
+	enum opp_grid_y = 40;
+	enum opp_grid_rt_x = 1464;
+	enum opp_grid_lower_y = 580;
+}
+
+enum icon_gap = 5;
+
+enum disconnected_color = SDL_Color(255, 0, 0, 255);
+enum black = SDL_Color(  0,   0,   0, 255),
+     white = SDL_Color(255, 255, 255, 255),
+     blue  = SDL_Color(  0,   0, 255, 255),
+     cyan  = SDL_Color(  0, 255, 255, 255);
+
 
 enum total_audio_channels        = 8,
      num_reserved_audio_channels = 3;
 
 enum connect_timeout = 12.seconds;
 
-enum anim_duration = 285.msecs;
-enum dragged_anim_speed = 0.728f;  // pixels per ms
+enum sound_effect_delay =   1.seconds;
+enum long_anim_duration = 750.msecs;
+enum anim_duration      = 285.msecs;
+enum dragged_anim_speed = 0.728f;   // pixels per ms
 
 private
 {
@@ -82,6 +129,7 @@ private
 	Font largeFont;
 	Font mediumFont;
 	Font smallFont;
+	Font tinyFont;
 	Font uiFont;
 	Font textFieldFont;
 	Texture disconnectedIcon;
@@ -156,11 +204,6 @@ version (Android)
 
 	import core.runtime : rt_init, rt_term;
 
-	// bool function(EGLDisplay, EGLSurface, long) nothrow @nogc @system eglPresentationTimeANDROID;
-	// EGLDisplay eglDisplay;
-	// EGLSurface eglSurface;
-	// long androidPresentationTime = 0;
-
 	extern (C) int SDL_main() @system
 	{
 		rt_init();
@@ -214,11 +257,6 @@ bool initialize(out Window window, out Renderer renderer) @system
 
 		version (Android)
 		{
-			// eglPresentationTimeANDROID = cast(bool function(void*, void*, long) nothrow @nogc)
-			//     eglGetProcAddress("eglPresentationTimeANDROID");
-			
-			// SDL_Log("eglPresentationTimeANDROID: %p", eglPresentationTimeANDROID);
-
 			SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "best");
 		}
 		else version (linux)
@@ -264,21 +302,11 @@ bool initialize(out Window window, out Renderer renderer) @system
 			| SDL_WINDOW_RESIZABLE );
 
 			renderer = window.createRenderer(cast(SDL_RendererFlags) 0);
-
-			// eglDisplay = SDL_GetEGLDisplay();
-
-			// SDL_Log("SDL_GetEGLDisplay: %p", eglDisplay);
-			// SDL_Log("eglGetDisplay(EGL_DEFAULT_DISPLAY): %p", eglGetDisplay(EGL_DEFAULT_DISPLAY));
-
-			// SDL_SysWMinfo info;
-
-			// SDL_VERSION(&info.version_);
-			// auto result = SDL_GetWindowWMInfo(window.raw_window, &info);
-
-			// eglSurface = info.info.android.surface;
-
-			// SDL_Log("SDL_GetWindowWMInfo result= %d", result);
-			// SDL_Log("eglSurface= %p", eglSurface);
+			
+			if (displayMode.w / cast(float) displayMode.h != 16.0f / 9.0f)
+			{
+				renderer.setLogicalSize(1920, 1080);
+			}
 		}
 		else
 		{
@@ -335,18 +363,24 @@ void load(ref Renderer renderer)
 	else {
 		enum assetPath = "assets/";
 	}
-
-	uiFont = openFont(assetPath ~ "Metropolis-ExtraBold.ttf", 26);
-	largeFont = openFont(assetPath ~ "Metropolis-ExtraBold.ttf", 42);
-	mediumFont = openFont(assetPath ~ "Metropolis-Medium.ttf", 32);
-	smallFont = openFont(assetPath ~ "Metropolis-Medium.ttf", 24);
-	nameFont = openFont(assetPath ~ "Metropolis-SemiBold.ttf", 37);
-	textFieldFont = openFont(assetPath ~ "RobotoCondensed-Regular.ttf", 36);
+	uiFont = openFont(assetPath ~ "Metropolis-ExtraBold.ttf", ui_font_size);
+	
+	version (Android) {
+		largeFont = uiFont;
+		tinyFont = openFont(assetPath ~ "RobotoCondensed-Regular.ttf", tiny_font_size);
+	}
+	else {
+		largeFont = openFont(assetPath ~ "Metropolis-ExtraBold.ttf", large_font_size);
+		tinyFont = openFont(assetPath ~ "Metropolis-SemiBold.ttf", tiny_font_size);
+	}
+	mediumFont = openFont(assetPath ~ "Metropolis-Medium.ttf", medium_font_size);
+	smallFont = openFont(assetPath ~ "Metropolis-Medium.ttf", small_font_size);
+	nameFont = openFont(assetPath ~ "Metropolis-SemiBold.ttf", name_font_size);
+	textFieldFont = openFont(assetPath ~ "RobotoCondensed-Regular.ttf", text_field_font_size);
 
 	localPlayer = new LocalPlayer();
-
 	localPlayerLabel = new PlayerLabel(Point(1354, 1060), HorizontalPositionMode.LEFT,
-	                                   VerticalPositionMode.BOTTOM, nameFont, renderer);
+	                                   VerticalPositionMode.BOTTOM, nameFont, tinyFont, renderer);
 
 	cancelButton = new Button(cancel_button_dims, "Cancel", uiFont, renderer);
 	cancelButton.visible = false;
@@ -358,17 +392,68 @@ void load(ref Renderer renderer)
 	cancelButton.nextTab = clickableGrid;
 	cancelButton.nextDown = clickableGrid;
 
-	version (Android) {
-	}
-	else {
+	loadConnectUI(renderer);
+
+	lastTurnLabel1 = new Label("Last", largeFont);
+	lastTurnLabel1.setPosition(960, 135, HorizontalPositionMode.CENTER, VerticalPositionMode.BOTTOM);
+	lastTurnLabel1.renderText(renderer);
+	lastTurnLabel1.setVisible(false);
+
+	lastTurnLabel2 = new Label("Turn!", largeFont);
+	lastTurnLabel2.setPosition(960, 135, HorizontalPositionMode.CENTER, VerticalPositionMode.TOP);
+	lastTurnLabel2.renderText(renderer);
+	lastTurnLabel2.setVisible(false);
+
+	opponentGrids[0] =
+		new OpponentGrid(Point(opp_grid_x, opp_grid_lower_y), NamePlacement.ABOVE, nameFont, tinyFont, renderer);
+	opponentGrids[1] =
+		new OpponentGrid(Point(opp_grid_x, opp_grid_y), NamePlacement.BELOW, nameFont, tinyFont, renderer);
+	opponentGrids[2] =
+		new OpponentGrid(Point(opp_grid_rt_x, opp_grid_y), NamePlacement.BELOW, nameFont, tinyFont, renderer);
+	opponentGrids[3] =
+		new OpponentGrid(Point(opp_grid_rt_x, opp_grid_lower_y), NamePlacement.ABOVE, nameFont, tinyFont, renderer);
+
+	woodTexture = renderer.loadTexture(assetPath ~ "wood.png");
+	greenFeltTexture = renderer.loadTexture(assetPath ~ "felt.jpg");
+	gameBackground = Background(woodTexture);
+
+	woodThemeButton = new Button(wood_theme_btn_dims, "Wood", uiFont, renderer);
+	greenFeltThemeButton = new Button(felt_theme_btn_dims, "Green felt", uiFont, renderer);
+
+	auto woodTheme = Theme(woodTexture, black, blue);
+	activeTheme = woodTheme;
+
+	woodThemeButton.enabled = true;
+	woodThemeButton.onClick = () @safe { setTheme(woodTheme, renderer); };
+
+	greenFeltThemeButton.enabled = true;
+	greenFeltThemeButton.onClick = asDelegate(() @safe
+	  { setTheme(Theme(greenFeltTexture, white, cyan), renderer); });
+
+	themeLabel = new Label("Theme: ", mediumFont);
+	themeLabel.setPosition(wood_theme_btn_dims.x, wood_theme_btn_dims.y + wood_theme_btn_dims.h / 2,
+	                       HorizontalPositionMode.RIGHT, VerticalPositionMode.CENTER);
+	themeLabel.renderText(renderer);
+
+	disconnectedIcon = renderer.loadTexture(assetPath ~ "network-x.png");
+	victoryIcon = renderer.loadTexture(assetPath ~ "star.png");
+
+	loadCardsAndSounds(renderer, assetPath);
+}
+
+void loadConnectUI(ref Renderer renderer)
+{
+	version (Android) { } else {
 		arrowCursor = createCursor(SDL_SYSTEM_CURSOR_ARROW);
 		iBeamCursor = createCursor(SDL_SYSTEM_CURSOR_IBEAM);
 	}
+	enum text_field_padding =  4,
+	     server_addr_max    = 20;
 
-	nameTextField = new TextField(textFieldFont, name_field_dims, 4, arrowCursor, iBeamCursor);
+	nameTextField = new TextField(textFieldFont, name_field_dims, text_field_padding, arrowCursor, iBeamCursor);
 	nameTextField.maxTextLength = MAX_NAME_LENGTH;
-	serverTextField = new TextField(textFieldFont, server_field_dims, 4, arrowCursor, iBeamCursor);
-	serverTextField.maxTextLength = 20;
+	serverTextField = new TextField(textFieldFont, server_field_dims, text_field_padding, arrowCursor, iBeamCursor);
+	serverTextField.maxTextLength = server_addr_max;
 	debug serverTextField.setText("localhost", renderer);
 	textComponents = [nameTextField, serverTextField];
 
@@ -401,62 +486,33 @@ void load(ref Renderer renderer)
 	                             HorizontalPositionMode.RIGHT, VerticalPositionMode.CENTER);
 	serverFieldLabel.renderText(renderer);
 
-	lastTurnLabel1 = new Label("Last", largeFont);
-	lastTurnLabel1.setPosition(960, 135, HorizontalPositionMode.CENTER, VerticalPositionMode.BOTTOM);
-	lastTurnLabel1.renderText(renderer);
-	lastTurnLabel1.setVisible(false);
+	version (Android) {
+		addTextFieldObservers(nameFieldLabel, nameTextField, name_field_dims, serverTextField, serverFieldLabel);
+		addTextFieldObservers(serverFieldLabel, serverTextField, server_field_dims, nameTextField, nameFieldLabel);
+	}
+}
 
-	lastTurnLabel2 = new Label("Turn!", largeFont);
-	lastTurnLabel2.setPosition(960, 135, HorizontalPositionMode.CENTER, VerticalPositionMode.TOP);
-	lastTurnLabel2.renderText(renderer);
-	lastTurnLabel2.setVisible(false);
+void loadCardsAndSounds(ref Renderer renderer, string assetPath)
+{
+	Card.setTexture(CardRank.NEGATIVE_TWO, renderer.loadTexture(assetPath ~ "-2.png"));
+	Card.setTexture(CardRank.NEGATIVE_ONE, renderer.loadTexture(assetPath ~ "-1.png"));
+	Card.setTexture(CardRank.ZERO, renderer.loadTexture(assetPath ~ "0.png"));
+	Card.setTexture(CardRank.ONE, renderer.loadTexture(assetPath ~ "1.png"));
+	Card.setTexture(CardRank.TWO, renderer.loadTexture(assetPath ~ "2.png"));
+	Card.setTexture(CardRank.THREE, renderer.loadTexture(assetPath ~ "3.png"));
+	Card.setTexture(CardRank.FOUR, renderer.loadTexture(assetPath ~ "4.png"));
+	Card.setTexture(CardRank.FIVE, renderer.loadTexture(assetPath ~ "5.png"));
+	Card.setTexture(CardRank.SIX, renderer.loadTexture(assetPath ~ "6.png"));
+	Card.setTexture(CardRank.SEVEN, renderer.loadTexture(assetPath ~ "7.png"));
+	Card.setTexture(CardRank.EIGHT, renderer.loadTexture(assetPath ~ "8.png"));
+	Card.setTexture(CardRank.NINE, renderer.loadTexture(assetPath ~ "9.png"));
+	Card.setTexture(CardRank.TEN, renderer.loadTexture(assetPath ~ "10.png"));
+	Card.setTexture(CardRank.ELEVEN, renderer.loadTexture(assetPath ~ "11.png"));
+	Card.setTexture(CardRank.TWELVE, renderer.loadTexture(assetPath ~ "12.png"));
+	Card.setTexture(CardRank.UNKNOWN, renderer.loadTexture(assetPath ~ "back-grad.png"));
 
-	opponentGrids[0] = new OpponentGrid(Point(40, 580), NamePlacement.ABOVE, nameFont, renderer);
-	opponentGrids[1] = new OpponentGrid(Point(40, 40), NamePlacement.BELOW, nameFont, renderer);
-	opponentGrids[2] = new OpponentGrid(Point(1464, 40), NamePlacement.BELOW, nameFont, renderer);
-	opponentGrids[3] = new OpponentGrid(Point(1464, 580), NamePlacement.ABOVE, nameFont, renderer);
-
-	woodTexture = renderer.loadTexture(assetPath ~ "wood.png");
-	greenFeltTexture = renderer.loadTexture(assetPath ~ "felt.jpg");
-	gameBackground = new Background(woodTexture);
-
-	woodThemeButton = new Button(wood_theme_btn_dims, "Wood", uiFont, renderer);
-	greenFeltThemeButton = new Button(felt_theme_btn_dims, "Green felt", uiFont, renderer);
-
-	auto woodTheme = Theme(woodTexture, SDL_Color(0, 0, 0, 255), SDL_Color(0, 0, 255, 255));
-	activeTheme = woodTheme;
-
-	woodThemeButton.enabled = true;
-	woodThemeButton.onClick = () @safe { setTheme(woodTheme, renderer); };
-
-	greenFeltThemeButton.enabled = true;
-	greenFeltThemeButton.onClick = asDelegate(() @safe
-	  { setTheme(Theme(greenFeltTexture, SDL_Color(255, 255, 255, 255), SDL_Color(0, 255, 255, 255)), renderer); });
-
-	themeLabel = new Label("Theme: ", mediumFont);
-	themeLabel.setPosition(wood_theme_btn_dims.x, wood_theme_btn_dims.y + wood_theme_btn_dims.h / 2,
-	                       HorizontalPositionMode.RIGHT, VerticalPositionMode.CENTER);
-	themeLabel.renderText(renderer);
-
-	disconnectedIcon = renderer.loadTexture(assetPath ~ "network-x.png");
-	victoryIcon = renderer.loadTexture(assetPath ~ "star.png");
-
-	Card.setTexture(CardRank.NEGATIVE_TWO, renderer.loadTexture(assetPath ~ "-2.png") );
-	Card.setTexture(CardRank.NEGATIVE_ONE, renderer.loadTexture(assetPath ~ "-1.png") );
-	Card.setTexture(CardRank.ZERO, renderer.loadTexture(assetPath ~ "0.png") );
-	Card.setTexture(CardRank.ONE, renderer.loadTexture(assetPath ~ "1.png") );
-	Card.setTexture(CardRank.TWO, renderer.loadTexture(assetPath ~ "2.png") );
-	Card.setTexture(CardRank.THREE, renderer.loadTexture(assetPath ~ "3.png") );
-	Card.setTexture(CardRank.FOUR, renderer.loadTexture(assetPath ~ "4.png") );
-	Card.setTexture(CardRank.FIVE, renderer.loadTexture(assetPath ~ "5.png") );
-	Card.setTexture(CardRank.SIX, renderer.loadTexture(assetPath ~ "6.png") );
-	Card.setTexture(CardRank.SEVEN, renderer.loadTexture(assetPath ~ "7.png") );
-	Card.setTexture(CardRank.EIGHT, renderer.loadTexture(assetPath ~ "8.png") );
-	Card.setTexture(CardRank.NINE, renderer.loadTexture(assetPath ~ "9.png") );
-	Card.setTexture(CardRank.TEN, renderer.loadTexture(assetPath ~ "10.png") );
-	Card.setTexture(CardRank.ELEVEN, renderer.loadTexture(assetPath ~ "11.png") );
-	Card.setTexture(CardRank.TWELVE, renderer.loadTexture(assetPath ~ "12.png") );
-	Card.setTexture(CardRank.UNKNOWN, renderer.loadTexture(assetPath ~ "back-grad.png") );
+	Card.setShadowTexture(renderer.loadTexture(assetPath ~ "shadow.png"));
+	Card.setStackShadowTexture(renderer.loadTexture(assetPath ~ "shadow2.png"));
 
 	dealSound = loadWAV(assetPath ~ "playcard.wav");
 	flipSound = loadWAV(assetPath ~ "cardPlace3.wav");
@@ -466,9 +522,35 @@ void load(ref Renderer renderer)
 	lastTurnSound = loadWAV(assetPath ~ "UI_007.wav");
 }
 
-SDL_Cursor* createCursor(SDL_SystemCursor c) @trusted nothrow @nogc
+version (Android)
 {
-	return SDL_CreateSystemCursor(c);
+	void addTextFieldObservers(Label label, TextField textField, Rectangle fieldDimensions,
+	                           TextField otherTextField, Label otherLabel)
+	{
+		Point usualPosition = label.getPosition();
+		
+		textField.addObserver!"textInputStarted"({
+			label.setPosition(name_field_dims.x, y_position_receiving_input + fieldDimensions.h / 2,
+			                  HorizontalPositionMode.RIGHT, VerticalPositionMode.CENTER);
+			otherTextField.enabled = false;
+			otherTextField.visible = false;
+			otherLabel.setVisible(false);
+		});
+
+		textField.addObserver!"textInputEnded"({
+			label.setPosition(usualPosition.x, usualPosition.y);
+			otherTextField.enabled = true;
+			otherTextField.visible = true;
+			otherLabel.setVisible(true);
+		});
+	}
+}
+else
+{
+	SDL_Cursor* createCursor(SDL_SystemCursor c) @trusted nothrow @nogc
+	{
+		return SDL_CreateSystemCursor(c);
+	}
 }
 
 void setTheme(Theme theme, ref Renderer renderer)
@@ -523,24 +605,6 @@ void mainLoop(ref Window window,
 	while (! quit)
 	{
 		version (Android) {
-			// enum long frameTimeNsecs = 16_666_666;
-			// bool result;
-
-			// SDL_SysWMinfo info;
-			// () @trusted { SDL_VERSION(&info.version_); SDL_GetWindowWMInfo(window.raw_window, &info); } ();
-
-			// currentTime = MonoTime.currTime();
-			
-			// if ( abs(androidPresentationTime - currentTime.ticks) > frameTimeNsecs * 4 )
-			// {
-			// 	androidPresentationTime = currentTime.ticks + frameTimeNsecs * 2;
-			// }
-			// else 
-			// {
-			// 	androidPresentationTime += 2 * frameTimeNsecs;
-			// }
-			// () @trusted { result = eglPresentationTimeANDROID(SDL_GetEGLDisplay(), info.info.android.surface,
-			//               androidPresentationTime); SDL_Log("%d", result); } ();
 		}
 		else
 		{
@@ -590,7 +654,7 @@ void mainLoop(ref Window window,
 		}
 
 		if (lastTurnSoundTimerStart != MonoTime.init
-		    && MonoTime.currTime() - lastTurnSoundTimerStart > 1000.msecs)
+		    && MonoTime.currTime() - lastTurnSoundTimerStart > sound_effect_delay)
 		{
 			lastTurnSound.play();
 			lastTurnSoundTimerStart = MonoTime.init;
@@ -601,7 +665,7 @@ void mainLoop(ref Window window,
 		}
 
 		if (yourTurnSoundTimerStart != MonoTime.init
-		    && MonoTime.currTime() - yourTurnSoundTimerStart > 1000.msecs)
+		    && MonoTime.currTime() - yourTurnSoundTimerStart > sound_effect_delay)
 		{
 			yourTurnSound.play();
 			yourTurnSoundTimerStart = MonoTime.init;
@@ -613,10 +677,11 @@ void mainLoop(ref Window window,
 
 void render(ref Window window, ref Renderer renderer)
 {
+	renderer.setDrawColor(0, 0, 0, 255);
 	renderer.clear();
-	renderer.setLogicalSize(0, 0);
+	version (Android) {} else { renderer.setLogicalSize(0, 0); }
 	gameBackground.render(renderer, window);
-	renderer.setLogicalSize(1920, 1080);
+	version (Android) {} else { renderer.setLogicalSize(1920, 1080); }
 
 	bool windowHasFocus = window.testFlag(SDL_WINDOW_INPUT_FOCUS);
 	applyCurrentMode(windowHasFocus);
@@ -715,7 +780,7 @@ void connect()
 	Socket socket;
 
 	try {
-		auto addr = new InternetAddress(address, 7684);
+		auto addr = new InternetAddress(address, port_number);
 		socket = new TcpSocket();
 		socket.blocking = false;
 		socket.connect(addr);
@@ -860,14 +925,22 @@ void pollInputEvents(ref bool quit, ref KeyboardController controller, ref Rende
 		}
 		else if (e.type == SDL_MOUSEMOTION)
 		{
-			lastMousePosition.x = e.motion.x;
-			lastMousePosition.y = e.motion.y;
+			version (Android) { }
+			else {
+				lastMousePosition.x = e.motion.x;
+				lastMousePosition.y = e.motion.y;
+			}
 
 			focusMouseMoved();
 			notifyObservers!"mouseMotion"(e.motion);
 		}
 		else if (e.type == SDL_MOUSEBUTTONDOWN && e.button.button == SDL_BUTTON_LEFT)
 		{
+			version (Android) {
+				lastMousePosition.x = e.motion.x;
+				lastMousePosition.y = e.motion.y;
+			}
+			
 			if (moveAnim.isFinished) {
 				notifyObservers!"mouseDown"(e.button);
 			}
@@ -1198,12 +1271,19 @@ void enterNoActionMode(UIMode mode = UIMode.NO_ACTION)
 
 void playerJoined(int number, string name)
 {
-	ClientPlayer p = new ClientPlayer(name);
-	p.setGrid( new ClientPlayerGrid!() );
-	model.setPlayer(p, number.to!ubyte);
+	ubyte n = number.to!ubyte;
+	
+	if ( model.hasPlayer(n) ) {
+		model[n].setName(name);
+	}
+	else {
+		ClientPlayer p = new ClientPlayer(name);
+		p.setGrid( new ClientPlayerGrid!() );
+		model.setPlayer(p, n);
 
-	updateOppGridsEnabledStatus(model.numberOfPlayers);
-	assignOpponentPositions();
+		updateOppGridsEnabledStatus(model.numberOfPlayers);
+		assignOpponentPositions();
+	}
 }
 
 void playerLeft(int number)
@@ -1398,7 +1478,7 @@ void discardSwap(int playerNumber, int row, int col, CardRank cardTaken, CardRan
 	}
 	else {
 		originRect = discard_pile_rect;
-		animDuration = 750.msecs;
+		animDuration = long_anim_duration;
 	}
 
 	moveAnim = MoveAnimation(popped.get, originRect, cardRect, animDuration);
@@ -1418,7 +1498,7 @@ void discardSwap(int playerNumber, int row, int col, CardRank cardTaken, CardRan
 			c.revealed = true;
 		}
 
-		moveAnim = MoveAnimation(c, cardRect, discard_pile_rect, 750.msecs);
+		moveAnim = MoveAnimation(c, cardRect, discard_pile_rect, long_anim_duration);
 		moveAnim.onFinished = {
 			discardSound.play();
 			model.pushToDiscard(c);
@@ -1498,13 +1578,13 @@ void placeDrawnCard(T)(T player, int row, int col, CardRank takenRank, CardRank 
 		}
 		else {
 			originRect = drawn_card_rect;
-			animDuration = 750.msecs;
+			animDuration = long_anim_duration;
 		}
 	}
 	else {
 		assignTaken(opponentDrawnCard, taken);
 		originRect = opponentDrawnCardRect;
-		animDuration = 750.msecs;
+		animDuration = long_anim_duration;
 	}
 
 	moveAnim = MoveAnimation(taken, originRect, cardRect, animDuration);
@@ -1524,7 +1604,7 @@ void placeDrawnCard(T)(T player, int row, int col, CardRank takenRank, CardRank 
 			c.revealed = true;
 		}
 
-		moveAnim = MoveAnimation(c, cardRect, discard_pile_rect, 750.msecs);
+		moveAnim = MoveAnimation(c, cardRect, discard_pile_rect, long_anim_duration);
 		moveAnim.onFinished = {
 			discardSound.play();
 			model.pushToDiscard(c);
@@ -1552,7 +1632,7 @@ void discardDrawnCard()
 	}
 	else {
 		originRect = drawn_card_rect;
-		animDuration = 750.msecs;
+		animDuration = long_anim_duration;
 	}
 
 	moveAnim = MoveAnimation(c, originRect, discard_pile_rect, animDuration);
@@ -1571,7 +1651,7 @@ void opponentDiscardsDrawnCard(ubyte playerNumber, CardRank rank)
 
 	const start = (cast(ClientPlayer) model.getPlayer(playerNumber)).getGrid.getDrawnCardDestination();
 
-	moveAnim = MoveAnimation(c, start, discard_pile_rect, 750.msecs);
+	moveAnim = MoveAnimation(c, start, discard_pile_rect, long_anim_duration);
 	moveAnim.onFinished = {
 		discardSound.play();
 		c.revealed = true;
@@ -1587,7 +1667,7 @@ void opponentDrawsCard(ubyte playerNumber)
 
 	const dest = (cast(ClientPlayer) model.getPlayer(playerNumber)).getGrid.getDrawnCardDestination();
 
-	moveAnim = MoveAnimation(unknown_card, draw_pile_rect, dest, 750.msecs);
+	moveAnim = MoveAnimation(unknown_card, draw_pile_rect, dest, long_anim_duration);
 	moveAnim.onFinished = {
 		opponentDrawnCard = unknown_card;
 		opponentDrawnCardRect = dest;
@@ -1609,21 +1689,21 @@ void removeColumn(ubyte playerNumber, int columnIndex)
 	}
 
 	player[0, columnIndex] = null;
-	moveAnim = MoveAnimation(a.get, grid.getCardDestination(0, columnIndex), discard_pile_rect, 750.msecs);
+	moveAnim = MoveAnimation(a.get, grid.getCardDestination(0, columnIndex), discard_pile_rect, long_anim_duration);
 	moveAnim.onFinished = {
 		dealSound.play();
 		model.pushToDiscard(a.get);
 		player[1, columnIndex] = null;
 
 		moveAnim = MoveAnimation(b.get,
-			grid.getCardDestination(1, columnIndex), discard_pile_rect, 750.msecs);
+			grid.getCardDestination(1, columnIndex), discard_pile_rect, long_anim_duration);
 		moveAnim.onFinished = {
 			dealSound.play();
 			model.pushToDiscard(b.get);
 			player[2, columnIndex] = null;
 
 			moveAnim = MoveAnimation(c.get,
-				grid.getCardDestination(2, columnIndex), discard_pile_rect, 750.msecs);
+				grid.getCardDestination(2, columnIndex), discard_pile_rect, long_anim_duration);
 			moveAnim.onFinished = {
 				dealSound.play();
 				model.pushToDiscard(c.get);
@@ -1716,12 +1796,19 @@ final class ClientPlayer : PlayerImpl!AbstractClientGrid
 
 final class PlayerLabel
 {
+	enum max_text_width = 470;
+	
 	Player player;
 	Label nameLabel;
+	Font primaryFont;
+	Font smallFont;
 
 	this(Point position, HorizontalPositionMode hMode,
-	     VerticalPositionMode vMode, Font font, ref Renderer renderer)
+	     VerticalPositionMode vMode, Font font, Font smallFont, ref Renderer renderer)
 	{
+		this.primaryFont = font;
+		this.smallFont = smallFont;
+		
 		nameLabel = new Label("", font);
 		() @trusted { nameLabel.setRenderer(&renderer); } ();
 		nameLabel.autoReRender = true;
@@ -1742,12 +1829,28 @@ final class PlayerLabel
 
 	void render(ref Renderer renderer, bool overrideColor = false)
 	{
+		@trusted void setLabelText(string txt)
+		{
+			int w;
+			TTF_SizeUTF8(primaryFont, txt.toStringz, &w, null);
+			
+			if (w > max_text_width) {
+				nameLabel.setFont(smallFont, false);
+			}
+			else {
+				nameLabel.setFont(primaryFont, false);
+			}
+			nameLabel.setText(txt);
+		}
+		
 		if (player is null) {
 			return;
 		}
 
-		if (currentMode != UIMode.PRE_GAME)
-		{
+		if (currentMode == UIMode.PRE_GAME) {
+			setLabelText(player.getName);
+		}
+		else {
 			string handScore = "";
 
 			if (player.getHandScore.isNotNull) {
@@ -1755,13 +1858,12 @@ final class PlayerLabel
 				handScore = '[' ~ (number >= 0 ? "+" : "") ~ number.to!string ~ ']';
 			}
 
-			nameLabel.setText(player.getName ~ ' ' ~ handScore ~ '(' ~ player.getScore.to!string ~ ')');
+			setLabelText(player.getName ~ ' ' ~ handScore ~ '(' ~ player.getScore.to!string ~ ')');
 		}
 
-		if (player.isWinner)
-		{
+		if (player.isWinner) {
 			Point labelPos = nameLabel.getPosition();
-			renderer.renderCopy(victoryIcon, labelPos.x + nameLabel.getWidth + 5, labelPos.y - 8);
+			renderer.renderCopy(victoryIcon, labelPos.x + nameLabel.getWidth + icon_gap, labelPos.y - 8);
 		}
 		auto playerTurn = model.playerWhoseTurnItIs();
 
@@ -1771,10 +1873,10 @@ final class PlayerLabel
 		else if (playerTurn.isNotNull && player is playerTurn.get && currentMode != UIMode.PRE_GAME
 			&& currentMode != UIMode.DEALING && currentMode != UIMode.FLIP_ACTION && currentMode != UIMode.END_GAME)
 		{
-			nameLabel.setColor(activeTheme.getPlayerTurnTextColor);           // blue
+			nameLabel.setColor(activeTheme.getPlayerTurnTextColor);           // "blue"
 		}
 		else {
-			nameLabel.setColor(activeTheme.getPrimaryTextColor);             // black
+			nameLabel.setColor(activeTheme.getPrimaryTextColor);             // "black"
 		}
 		nameLabel.draw(renderer);
 	}
@@ -1782,9 +1884,16 @@ final class PlayerLabel
 
 final class OpponentGrid
 {
-	enum offset_x = 205,
-	     offset_y_above = -10,
-	     offset_y_below = 418;
+	enum offset_x = 205;
+
+	version (Android) {
+		enum offset_y_above = -14,
+		     offset_y_below = 422;
+	}
+	else {
+	    enum offset_y_above = -10,
+	         offset_y_below = 418;
+	}
 
 	private
 	{
@@ -1794,7 +1903,7 @@ final class OpponentGrid
 		bool enabled;
 	}
 
-	this(Point position, NamePlacement placement, Font font, ref Renderer renderer)
+	this(Point position, NamePlacement placement, Font font, Font smallFont, ref Renderer renderer)
 	{
 		this.position = position;
 
@@ -1803,7 +1912,7 @@ final class OpponentGrid
 
 		playerLabel = new PlayerLabel(labelPosition, HorizontalPositionMode.CENTER,
 		    placement == NamePlacement.ABOVE ? VerticalPositionMode.BOTTOM : VerticalPositionMode.TOP,
-		    font, renderer);
+		    font, smallFont, renderer);
 	}
 
 	void setPlayer(ClientPlayer player)
@@ -1829,11 +1938,11 @@ final class OpponentGrid
 
 		if (player !is null && player.disconnected)
 		{
-			playerLabel.nameLabel.setColor(SDL_Color(255, 0, 0, 255));     // red
+			playerLabel.nameLabel.setColor(disconnected_color);     // "red"
 			overrideColor = true;
 
 			Point labelPos = playerLabel.nameLabel.getPosition();
-			int x = labelPos.x - disconnectedIcon.width - 5;
+			int x = labelPos.x - disconnectedIcon.width - icon_gap;
 			renderer.renderCopy(disconnectedIcon, x, labelPos.y - 5);
 		}
 
@@ -1841,31 +1950,56 @@ final class OpponentGrid
 	}
 }
 
-abstract class ClickableCardPile : Clickable
+interface InteractiveComponent
+{
+	bool shouldBeHighlighted();
+}
+
+abstract class ClickableCardPile : Clickable, InteractiveComponent
 {
 	Point position;
 
 	this(Point position)
 	{
 		this.position = position;
-		this.setRectangle(Rectangle(position.x, position.y, card_large_width, card_large_height));
 	}
 
 	void render(ref Renderer renderer, const bool windowHasFocus)
 	{
 		getShownCard().ifPresent!( c => c.draw(renderer, position, card_large_width, card_large_height,
 			windowHasFocus && itemFocusType != FocusType.STRONG && shouldBeHighlighted() ?
-			highlightMode() : unhoveredHighlightMode()) );
+			highlightMode() : unhoveredHighlightMode(), shadowMode()) );
 	}
-
-	mixin MouseUpActivation;
 
 	abstract Nullable!(const Card) getShownCard();
 	abstract Card.Highlight highlightMode();
 	abstract Card.Highlight unhoveredHighlightMode();
+	abstract Card.Shadow shadowMode();
 }
 
-abstract class DraggableCardPile : ClickableCardPile
+abstract class MouseUpCardPile : ClickableCardPile
+{
+	mixin MouseUpActivation;
+
+	this(Point position)
+	{
+		super(position);
+		this.setRectangle(Rectangle(position.x, position.y, card_large_width, card_large_height));
+	}
+}
+
+abstract class MouseDownCardPile : ClickableCardPile
+{
+	mixin MouseDownActivation;
+
+	this(Point position)
+	{
+		super(position);
+		this.setRectangle(Rectangle(position.x, position.y, card_large_width, card_large_height));
+	}
+}
+
+abstract class DraggableCardPile : MouseUpCardPile
 {
 	mixin DragAndDrop;
 
@@ -1879,15 +2013,17 @@ abstract class DraggableCardPile : ClickableCardPile
 		auto drawPosition = position;
 		Card.Highlight mode = windowHasFocus && itemFocusType != FocusType.STRONG
 				&& shouldBeHighlighted() ? highlightMode() : unhoveredHighlightMode();
+		auto shadow = shadowMode();
 
 		if ( isBeingDragged() || (isDropped() && numberOfAnimations == 0) ) {
 			drawPosition = drawPosition.offset( positionAdjustment()[] );
 
 			mode = isBeingDragged() ? Card.Highlight.HOVER : Card.Highlight.OFF;
+			shadow = Card.Shadow.OFF;
 		}
 
 		getShownCard().ifPresent!( c => c.draw(renderer, drawPosition,
-		                                       card_large_width, card_large_height, mode) );
+		                                       card_large_width, card_large_height, mode, shadow) );
 	}
 }
 
@@ -1910,8 +2046,8 @@ final class DiscardPile : DraggableCardPile, DragAndDropTarget, Focusable
 	override void render(ref Renderer renderer, const bool windowHasFocus)
 	{
 		if ( isBeingDragged() ) {
-			model.getDiscardSecondCard.ifPresent!(
-				c => c.draw(renderer, position, card_large_width, card_large_height, Card.Highlight.OFF) );
+			model.getDiscardSecondCard.ifPresent!( c => c.draw(renderer,
+				position, card_large_width, card_large_height, Card.Highlight.OFF, shadowMode()) );
 		}
 
 		super.render(renderer, windowHasFocus);
@@ -1920,6 +2056,19 @@ final class DiscardPile : DraggableCardPile, DragAndDropTarget, Focusable
 	override Nullable!(const Card) getShownCard()
 	{
 		return model.getDiscardTopCard();
+	}
+
+	override Card.Shadow shadowMode()
+	{
+		if (model.getDiscardPileSize >= 4) {
+			return Card.Shadow.STACK;
+		}
+		else if (model.getDiscardPileSize > 0) {
+			return Card.Shadow.ON;
+		}
+		else {
+			return Card.Shadow.OFF;
+		}
 	}
 
 	override Card.Highlight highlightMode()
@@ -2011,13 +2160,20 @@ final class DiscardPile : DraggableCardPile, DragAndDropTarget, Focusable
 		return localPlayer.getGrid;
 	}
 
-	override bool focusEnabled()
+	override bool focusEnabled() const
 	{
 		return this.enabled && (currentMode == UIMode.DRAWN_CARD_ACTION || currentMode == UIMode.MY_TURN_ACTION);
 	}
 }
 
-final class DrawPile : ClickableCardPile, Focusable
+version (Android) {
+	alias DrawPileType = MouseDownCardPile;
+}
+else {
+	alias DrawPileType = MouseUpCardPile;
+}
+
+final class DrawPile : DrawPileType, Focusable
 {
 	mixin BasicFocusable;
 
@@ -2029,6 +2185,21 @@ final class DrawPile : ClickableCardPile, Focusable
 	override Nullable!(const Card) getShownCard() const
 	{
 		return nullable(cast(const(Card)) unknown_card);
+	}
+
+	version (Android)
+	{
+		override void render(ref Renderer renderer, const bool windowHasFocus)
+		{
+			if ( !(nameTextField.acceptingTextInput || serverTextField.acceptingTextInput) ) {
+				super.render(renderer, windowHasFocus);
+			}
+		}
+	}
+
+	override Card.Shadow shadowMode()
+	{
+		return Card.Shadow.STACK;
 	}
 
 	override Card.Highlight highlightMode()
@@ -2087,7 +2258,7 @@ final class DrawPile : ClickableCardPile, Focusable
 		return nextRight();
 	}
 
-	override bool focusEnabled()
+	override bool focusEnabled() const
 	{
 		return this.enabled();
 	}
@@ -2130,6 +2301,11 @@ final class DrawnCard : DraggableCardPile
 		else {
 			return Card.Highlight.OFF;
 		}
+	}
+
+	override Card.Shadow shadowMode()
+	{
+		return Card.Shadow.OFF;
 	}
 }
 

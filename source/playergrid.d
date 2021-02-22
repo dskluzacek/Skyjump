@@ -224,7 +224,7 @@ class ClientPlayerGrid
         }
 
         c.draw(renderer,
-            position.offset(c_coord[col], r_coord[row]), card_w, card_h, highlight);
+            position.offset(c_coord[col], r_coord[row]), card_w, card_h, highlight, Card.Shadow.ON);
     }
 }
 
@@ -265,14 +265,32 @@ final class ClickablePlayerGrid :
         this.lastMousePosition = position;
     }
 
-    override void mouseButtonDown(Point position) pure nothrow
+    override void mouseButtonDown(Point position)
     {
-        cardBeingClicked = getCardByMousePosition(position);
-        mouseDown = true;
+       version (Android) {
+            auto coords = getRowAndColumn(position);
+            
+            if (coords.isNotNull)
+            {
+                Card cardHovered = cards[coords.get.row][coords.get.col];
+
+                if (cardHovered !is null) {
+                    clickHandler(coords.get[]);
+                }
+            }
+        }
+        else {
+            cardBeingClicked = getCardByMousePosition(position);
+            mouseDown = true;
+        }
     }
 
     override void mouseButtonUp(Point position)
     {
+        version (Android) {
+            return;
+        }
+        
         auto coords = getRowAndColumn(position);
 
         if (coords.isNotNull)
@@ -347,11 +365,15 @@ final class ClickablePlayerGrid :
         else if ( (mouseDown && cardBeingClicked.isNotNull && cardBeingClicked.get is c)
                  || (!mouseDown && getBox(row, col).containsPoint(lastMousePosition)) )
         {
-            if (mode == GridHighlightMode.SELECTION && ! c.revealed) {
-                shouldHighlight = Card.Highlight.HOVER;
-            }
-            else if (mode == GridHighlightMode.PLACEMENT) {
-                shouldHighlight = Card.Highlight.PLACE;
+            version (Android) { }
+            else
+            {
+                if (mode == GridHighlightMode.SELECTION && ! c.revealed) {
+                    shouldHighlight = Card.Highlight.HOVER;
+                }
+                else if (mode == GridHighlightMode.PLACEMENT) {
+                    shouldHighlight = Card.Highlight.PLACE;
+                }
             }
         }
         else if (focusType == FocusType.WEAK && row == focusedCard.row && col == focusedCard.col)
@@ -396,7 +418,7 @@ final class ClickablePlayerGrid :
         cardBeingClicked = (Nullable!Card).init;
     }
 
-    override bool focusEnabled()
+    override bool focusEnabled() const
     {
         return mode != GridHighlightMode.OFF;
     }

@@ -86,6 +86,21 @@ final class Label
         }
     }
 
+    void setFont(Font font, bool autoRender = true) @trusted
+    {
+        if (font == this.font) {
+            return;
+        }
+        this.font = font;
+
+        if (_autoReRender && autoRender && _renderer !is null) {
+            renderImpl(*_renderer);
+        }
+        if (autoPositionEnabled && autoRender) {
+            setPosition(autoPosition.x, autoPosition.y, horizontalPositionMode, verticalPositionMode);
+        }
+    }
+
     void setVisible(bool visible) pure @nogc nothrow
     {
         this.visible = visible;

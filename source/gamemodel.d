@@ -94,6 +94,11 @@ struct GameModel
         return discardPile.pop();
     }
 
+    size_t getDiscardPileSize() const pure nothrow
+    {
+        return discardPile.size();
+    }
+
     ubyte addPlayer(Player p) pure nothrow
     {
         foreach (ubyte n; 0 .. 256)
@@ -117,6 +122,11 @@ struct GameModel
             players[number] = p;
             assert(players[number] !is null);
         }
+    }
+
+    bool hasPlayer(ubyte index)
+    {
+        return (index in players ? true : false);
     }
 
     alias opIndex = getPlayer;
@@ -315,7 +325,20 @@ struct ServerGameModel
 
     bool hasPlayer(ubyte index)
     {
-        return (index in players ? true : false);
+        return baseModel.hasPlayer(index);
+    }
+
+    unittest
+    {
+        ServerGameModel model;
+        model.setPlayer(new PlayerImpl!PlayerGrid(""), 1);
+        model.setPlayer(new PlayerImpl!PlayerGrid(""), 4);
+
+        assert(model.hasPlayer(0) == false);
+        assert(model.hasPlayer(1));
+        assert(model.hasPlayer(2) == false);
+        assert(model.hasPlayer(3) == false);
+        assert(model.hasPlayer(4));
     }
 
     Player opIndex(ubyte index) pure
@@ -635,6 +658,18 @@ struct ServerGameModel
         }
 
         throw new Error("no such player in GameModel");
+    }
+
+    void changePlayerName(Player p, string name)
+    {
+        p.setName(name);
+        
+        foreach (obs; observers)
+        {
+            if (obs.player !is p) {
+                obs.playerJoined(playerNumberOf(p), name);
+            }
+        }
     }
 
     void waitForReconnect(Player p)
