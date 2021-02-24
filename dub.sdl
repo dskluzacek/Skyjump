@@ -12,8 +12,9 @@ configuration "SkyjumpApp" {
 configuration "SkyjumpServer" {
     targetType "executable"
     mainSourceFile "source/server.d"
-    excludedSourceFiles "source/client.d" "source/label.d" "source/keyboard.d" "source/animation.d" "source/background.d" "source/button.d" "source/textfield.d" "source/theme.d"
-    dependency "bindbc-sdl" version="~>0.19.1"
-    versions "SDL_Image" "SDL_TTF" "SDL_Mixer"
+    excludedSourceFiles "source/client.d" "source/label.d" "source/keyboard.d" "source/animation.d" "source/background.d" \
+        "source/button.d" "source/textfield.d" "source/theme.d" "source/draganddrop.d" "source/sdl2/*.d"
+    versions "server"
+    buildRequirements "requireContracts" "requireBoundsCheck"
     targetName "skyjump-server"
 }

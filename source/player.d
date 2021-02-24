@@ -7,7 +7,9 @@ import playergrid;
 import card : Card;
 import std.exception : enforce;
 
-alias LocalPlayer  = PlayerImpl!ClickablePlayerGrid;
+version (server) {} else {
+    alias LocalPlayer = PlayerImpl!ClickablePlayerGrid;
+}
 
 interface Player
 {
@@ -49,8 +51,6 @@ class PlayerImpl(GridType) : Player
 
     override string getName()
     {
-        enforce!Error(name !is null, "name was null");
-
         return name;
     }
 

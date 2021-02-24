@@ -8,12 +8,14 @@ import std.typecons;
 import std.exception : enforce;
 import std.range : ElementType, isInputRange;
 
-import sdl2.sdl : Point, Rectangle;
-import sdl2.texture;
-import sdl2.renderer;
+version (server) {} else {
+    import sdl2.sdl : Point, Rectangle;
+    import sdl2.texture;
+    import sdl2.renderer;
 
-import util : drawBorder;
-import playergrid : card_large_width, card_large_height, card_medium_width, card_medium_height;
+    import util : drawBorder;
+    import playergrid : card_large_width, card_large_height, card_medium_width, card_medium_height;
+}
 
 enum highlight_yellow = tuple(255, 255, 165);
 enum pale_indigo = tuple(162, 165, 198);
@@ -47,10 +49,12 @@ final class Card
     private immutable CardRank _rank;
     private bool _revealed;
 
-    private static Texture[CardRank] cardTextures;
-    private static Texture shadowTexture;
-    private static Texture stackShadowTexture;
-
+    version (server) {} else {
+        private static Texture[CardRank] cardTextures;
+        private static Texture shadowTexture;
+        private static Texture stackShadowTexture;
+    }
+    
     this(CardRank rank) pure nothrow
     {
         _rank = rank;
@@ -88,6 +92,8 @@ final class Card
             return cast(int) _rank;
         }
     }
+    
+    version (server) {} else:
 
     void draw(ref Renderer rndr, Rectangle rect,
               Highlight highlight = Highlight.OFF, Shadow shadow = Shadow.OFF) const
@@ -219,7 +225,7 @@ final class Deck
         Card result = cards[index];
         cards = cards.remove(index);
 
-        enforce!Error(result !is null, "result was null");
+        assert(result !is null);
 
         return result.nullable;
     }

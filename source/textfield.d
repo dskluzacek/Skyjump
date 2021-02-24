@@ -42,8 +42,6 @@ final class TextField : TextComponent, Focusable, Clickable
         Rectangle box;
         Font font;
         Texture renderedText;
-        SDL_Cursor* defaultCursor;
-        SDL_Cursor* hoverCursor;
         Focusable onEnterItem;
         dchar[] text;
         int maxLength = -1;
@@ -58,6 +56,10 @@ final class TextField : TextComponent, Focusable, Clickable
         version (Android) {
             int yPosition;
         }
+        else {
+            SDL_Cursor* defaultCursor;
+            SDL_Cursor* hoverCursor;
+        }
     }
 
     this(Font font, Rectangle box, int padding, SDL_Cursor* defaultCursor, SDL_Cursor* hoverCursor)
@@ -67,11 +69,13 @@ final class TextField : TextComponent, Focusable, Clickable
         this.font = font;
         this.box = box;
         this.padding = padding;
-        this.defaultCursor = defaultCursor;
-        this.hoverCursor = hoverCursor;
 
         version (Android) {
             yPosition = box.y;
+        }
+        else {
+            this.defaultCursor = defaultCursor;
+            this.hoverCursor = hoverCursor;
         }
     }
 

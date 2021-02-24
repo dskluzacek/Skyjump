@@ -5,12 +5,15 @@ import std.typecons;
 import std.range : chain;
 import std.algorithm : filter;
 
-import sdl2.sdl;
-import sdl2.texture;
-import sdl2.renderer;
+version (server) {} else {
+    import sdl2.sdl;
+    import sdl2.texture;
+    import sdl2.renderer;
+    import draganddrop;
+}
+
 import card;
 import util;
-import draganddrop;
 
 enum card_large_height  = 240,
      card_large_width   = 172,
@@ -124,6 +127,8 @@ class PlayerGrid
         assert(grid.cards[2][3].value == -1);
     }
 }
+
+version (server) {} else:
 
 abstract class AbstractClientGrid : PlayerGrid
 {

@@ -2,7 +2,7 @@ module server;
 @safe:
 
 import std.stdio;
-import std.algorithm : each, remove, all, count;
+import std.algorithm : each, remove, all, count, min;
 import std.conv;
 import std.string : join;
 import std.uni : toLower;
@@ -180,8 +180,9 @@ void setNameOfPlayer(string[] args)
 
         foreach (client; clients)
         {
-            if (model.playerNumberOf(client.player) == playerNum) {
-                auto newName = args[1 .. $].join(" ");
+            if (model.playerNumberOf(client.player) == playerNum)
+            {
+                auto newName = args[1 .. $].join(" ")[0 .. min(MAX_NAME_LENGTH, $)];
                 model.changePlayerName(model[playerNum], newName);
                 client.playerJoined(playerNum, newName);
                 writeMsg();

@@ -6,36 +6,39 @@ import std.array : array;
 import std.traits;
 import std.typecons : Nullable, tuple;
 import std.functional : unaryFun, toDelegate;
-import sdl2.sdl : Rectangle, Point;
-import sdl2.renderer;
+
+version (server) {} else {
+	import sdl2.sdl : Rectangle, Point;
+	import sdl2.renderer;
+}
 
 pure float lerp(float value1, float value2, float t) @safe @nogc nothrow
 {
 	return ((1 - t) * value1) + (t * value2);
 }
 
-pure Point lerp(Point a, Point b, float t) @safe @nogc nothrow
+pure Point lerp()(Point a, Point b, float t) @safe @nogc nothrow
 {
 	return Point(cast(int) lerp(a.x, b.x, t), cast(int) lerp(a.y, b.y, t));
 }
 
-pure bool containsPoint(Rectangle rect, int x, int y) @safe @nogc nothrow
+pure bool containsPoint()(Rectangle rect, int x, int y) @safe @nogc nothrow
 {
 	return ( x >= rect.x && x <= rect.x + rect.w
 			&& y >= rect.y && y <= rect.y + rect.h );
 }
 
-pure bool containsPoint(Rectangle rect, Point p) @safe @nogc nothrow
+pure bool containsPoint()(Rectangle rect, Point p) @safe @nogc nothrow
 {
 	return containsPoint(rect, p.x, p.y);
 }
 
-pure Point offset(Point a, int x, int y) @safe @nogc nothrow
+pure Point offset()(Point a, int x, int y) @safe @nogc nothrow
 {
 	return Point(a.x + x, a.y + y);
 }
 
-pure Rectangle offset(Rectangle a, int x, int y) @safe @nogc nothrow
+pure Rectangle offset()(Rectangle a, int x, int y) @safe @nogc nothrow
 {
 	return Rectangle(a.x + x, a.y + y, a.w, a.h);
 }
@@ -49,7 +52,7 @@ pure float distance(T)(T a, T b) @safe @nogc nothrow
 	return sqrt(dx * dx + dy * dy);
 }
 
-pure long intersectionArea(Rectangle a, Rectangle b) @safe @nogc nothrow
+pure long intersectionArea()(Rectangle a, Rectangle b) @safe @nogc nothrow
 {
 	auto maxX_a = a.x + a.w;
 	auto maxX_b = b.x + b.w;
@@ -66,6 +69,91 @@ pure long intersectionArea(Rectangle a, Rectangle b) @safe @nogc nothrow
 		return -1;
 	}
 }
+
+mixin template RemovalFlag()
+{
+	private bool _removeMe;
+
+	void markForRemoval() pure @safe @nogc nothrow
+	{
+		_removeMe = true;
+	}
+
+	bool isMarkedForRemoval() const pure @safe @nogc nothrow
+	{
+		return _removeMe;
+	}
+}
+
+mixin template Observable(string eventName, TList...)
+{
+	alias ObserverType = void delegate(TList);
+
+	private ObserverType[] observers;
+
+	private void notifyObservers(string event)(TList args) if (event == eventName)
+	{
+		foreach (observer; observers)
+		{
+			observer(args);
+		}
+	}
+
+	void addObserver(string event)(ObserverType observer) @safe nothrow
+        if (event == eventName)
+	{
+		observers ~= observer;
+	}
+
+	void removeObserver(string event)(ObserverType observer) @safe nothrow
+        if (event == eventName)
+	{
+		observers = observers.remove!(a => a is observer);
+	}
+}
+
+unittest
+{
+	mixin Observable!"foo";
+
+	@nogc nothrow void delegate() d1 = { };
+	@nogc nothrow void delegate() d2 = { };
+
+	addObserver!"foo"( d1 );
+	addObserver!"foo"( d2 );
+	addObserver!"foo"( d1 );
+
+	assert(observers.length == 3);
+
+	removeObserver!"foo"( d1 );
+
+	assert(observers.length == 1);
+	assert(observers[0] is d2);
+}
+
+template ifPresent(alias functn)
+{
+	void ifPresent(T)(auto ref T t)
+		if (isInstanceOf!(Nullable, T) && is(typeof( unaryFun!functn(T.init.get) )))
+	{
+		if ( ! t.isNull )
+		{
+			functn(t.get);
+		}
+	}
+}
+
+bool isNotNull(T)(auto ref T t) if (isInstanceOf!(Nullable, T))
+{
+	return ! t.isNull;
+}
+
+@trusted auto asDelegate(T)(auto ref T t) if (isCallable!T)
+{
+	return toDelegate(t);
+}
+
+version (server) {} else:
 
 void drawBorder(ref Renderer renderer,
                 int width,
@@ -217,89 +305,6 @@ mixin template MouseUpActivation()
 					|| (!mouseDown && box.containsPoint(lastMousePosition)));
 		}
 	}
-}
-
-mixin template RemovalFlag()
-{
-	private bool _removeMe;
-
-	void markForRemoval() pure @safe @nogc nothrow
-	{
-		_removeMe = true;
-	}
-
-	bool isMarkedForRemoval() const pure @safe @nogc nothrow
-	{
-		return _removeMe;
-	}
-}
-
-mixin template Observable(string eventName, TList...)
-{
-	alias ObserverType = void delegate(TList);
-
-	private ObserverType[] observers;
-
-	private void notifyObservers(string event)(TList args) if (event == eventName)
-	{
-		foreach (observer; observers)
-		{
-			observer(args);
-		}
-	}
-
-	void addObserver(string event)(ObserverType observer) @safe nothrow
-        if (event == eventName)
-	{
-		observers ~= observer;
-	}
-
-	void removeObserver(string event)(ObserverType observer) @safe nothrow
-        if (event == eventName)
-	{
-		observers = observers.remove!(a => a is observer);
-	}
-}
-
-unittest
-{
-	mixin Observable!"foo";
-
-	@nogc nothrow void delegate() d1 = { };
-	@nogc nothrow void delegate() d2 = { };
-
-	addObserver!"foo"( d1 );
-	addObserver!"foo"( d2 );
-	addObserver!"foo"( d1 );
-
-	assert(observers.length == 3);
-
-	removeObserver!"foo"( d1 );
-
-	assert(observers.length == 1);
-	assert(observers[0] is d2);
-}
-
-template ifPresent(alias functn)
-{
-	void ifPresent(T)(auto ref T t)
-		if (isInstanceOf!(Nullable, T) && is(typeof( unaryFun!functn(T.init.get) )))
-	{
-		if ( ! t.isNull )
-		{
-			functn(t.get);
-		}
-	}
-}
-
-bool isNotNull(T)(auto ref T t) if (isInstanceOf!(Nullable, T))
-{
-	return ! t.isNull;
-}
-
-@trusted auto asDelegate(T)(auto ref T t) if (isCallable!T)
-{
-	return toDelegate(t);
 }
 
 interface Focusable

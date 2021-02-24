@@ -191,13 +191,3 @@ final class DealAnimation
         animation.render(renderer);
     }
 }
-
-// private:
-//
-// version (Android)
-// {
-//     int total(string S)(int x) if (S == "msecs")
-//     {
-//         return x;
-//     }
-// }

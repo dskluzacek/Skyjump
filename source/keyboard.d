@@ -2,6 +2,11 @@ module keyboard;
 
 import sdl2.sdl;
 
+version (Android) {
+	struct KeyboardController { }
+}
+else:
+
 struct KeyboardController
 {
 	private
@@ -18,7 +23,7 @@ struct KeyboardController
 	{
 		if (ke.type == SDL_KEYDOWN && ! ke.repeat)
 		{
-			if (ke.keysym.scancode == quitKey)
+			if (ke.keysym.scancode == quitKey && quitHandler !is null)
 				quitHandler();
 		}
 	}

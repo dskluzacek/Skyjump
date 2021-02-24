@@ -17,237 +17,237 @@ import playergrid;
 import card;
 
 enum BUFFER_SIZE = 96;
-enum MAX_NAME_LENGTH = 14;
+enum MAX_NAME_LENGTH = 13;
 
-final class ServerPlayer : PlayerImpl!PlayerGrid
+version (server)
 {
-    ConnectedClient client;
-
-    this(in char[] name, ConnectedClient client)
+    final class ServerPlayer : PlayerImpl!PlayerGrid
     {
-        super(name);
-        this.client = client;
-    }
+        ConnectedClient client;
 
-    ServerGameModel.Observer observer() pure nothrow @nogc
-    {
-        return client;
-    }
-
-    void sendCardMessage(CardRank rank)
-    {
-        client.send(ServerMessageType.CARD, cast(int) rank);
-    }
-}
-
-final class ConnectedClient : ServerGameModel.Observer
-{
-    private
-    {
-        Socket _socket;
-        ServerPlayer _player;
-    }
-    public
-    {
-        bool waitingForJoin = true;
-        bool readyReceived;
-    }
-
-    this(Socket sock)
-    {
-        _socket = sock;
-    }
-
-    mixin RemovalFlag;
-
-    Nullable!ClientMessage poll(SocketSet socketSet)
-    {
-        static const(char)[] leftoverChars = "";
-
-        //writeln("socket is null? ", _socket is null);
-
-        if ( socketSet.isSet(_socket) )
+        this(in char[] name, ConnectedClient client)
         {
-            char[BUFFER_SIZE] buffer;
-            auto dataLength = _socket.receive(buffer[]);
+            super(name);
+            this.client = client;
+        }
 
-            if (dataLength == Socket.ERROR)
+        ServerGameModel.Observer observer() pure nothrow @nogc
+        {
+            return client;
+        }
+
+        void sendCardMessage(CardRank rank)
+        {
+            client.send(ServerMessageType.CARD, cast(int) rank);
+        }
+    }
+
+    final class ConnectedClient : ServerGameModel.Observer
+    {
+        private
+        {
+            Socket _socket;
+            ServerPlayer _player;
+        }
+        public
+        {
+            bool waitingForJoin = true;
+            bool readyReceived;
+        }
+
+        this(Socket sock)
+        {
+            _socket = sock;
+        }
+
+        mixin RemovalFlag;
+
+        Nullable!ClientMessage poll(SocketSet socketSet)
+        {
+            static const(char)[] leftoverChars = "";
+
+            if ( socketSet.isSet(_socket) )
             {
-                throw new SocketReadException("receive returned Socket.ERROR", dataLength);
+                char[BUFFER_SIZE] buffer;
+                auto dataLength = _socket.receive(buffer[]);
+
+                if (dataLength == Socket.ERROR)
+                {
+                    throw new SocketReadException("receive returned Socket.ERROR", dataLength);
+                }
+                else if (dataLength == 0)
+                {
+                    throw new SocketReadException("client closed connection", dataLength);
+                }
+                else
+                {
+                    return handleChars!(ClientMessage, parseClientMessage)
+                                         (leftoverChars, buffer[0 .. dataLength].idup);
+                }
             }
-            else if (dataLength == 0)
+            else if (leftoverChars.length > 0)
             {
-                throw new SocketReadException("client closed connection", dataLength);
+                return handleChars!(ClientMessage, parseClientMessage)(leftoverChars, "");
             }
             else
             {
-                //writeln("entering handleChars");
-                return handleChars!(ClientMessage, parseClientMessage)(leftoverChars, buffer[0 .. dataLength].idup);
+                return (Nullable!ClientMessage).init;
             }
         }
-        else if (leftoverChars.length > 0)
+
+        Socket socket() pure nothrow @nogc
         {
-            return handleChars!(ClientMessage, parseClientMessage)(leftoverChars, "");
-        }
-        else
-        {
-            //writeln("returning Nullable.init");
-            return (Nullable!ClientMessage).init;
-        }
-    }
-
-    Socket socket() pure nothrow @nogc
-    {
-        return _socket;
-    }
-
-    ServerPlayer player() @property pure nothrow @nogc //stfu
-    {
-        return _player;
-    }
-
-    void player(ServerPlayer p) @property pure nothrow @nogc
-    {
-        _player = p;
-    }
-
-    override void deal(int dealer)
-    {
-        send(ServerMessageType.DEAL, dealer);
-    }
-
-    override void chooseFlip()
-    {
-        send(ServerMessageType.CHOOSE_FLIP);
-    }
-
-    override void discardFlippedOver(int card)
-    {
-        send(ServerMessageType.DISCARD_CARD, card);
-    }
-
-    override void changeTurn(int playerNum)
-    {
-        send(ServerMessageType.CHANGE_TURN, playerNum);
-    }
-
-    override void yourTurn()
-    {
-        send(ServerMessageType.YOUR_TURN);
-    }
-
-    override void drawpile(int playerNum)
-    {
-        send(ServerMessageType.DRAWPILE, playerNum);
-    }
-
-    override void drawpilePlace(int playerNum, int row, int col, int card, int discard)
-    {
-        send(ServerMessageType.DRAWPILE_PLACE, playerNum, row, col, card, discard);
-    }
-
-    override void drawpileReject(int playerNum, int card)
-    {
-        send(ServerMessageType.DRAWPILE_REJECT, playerNum, card);
-    }
-
-    override void revealed(int playerNum, int row, int col, int card)
-    {
-        send(ServerMessageType.REVEAL, playerNum, row, col, card);
-    }
-
-    override void discardSwap(int playerNum, int row, int col, int taken, int thrown)
-    {
-        send(ServerMessageType.DISCARD_SWAP, playerNum, row, col, taken, thrown);
-    }
-
-    override void columnRemoved(int playerNum, int columnIndex)
-    {
-        send(ServerMessageType.COLUMN_REMOVAL, playerNum, columnIndex);
-    }
-
-    override void lastTurn(int playerNum)
-    {
-        send(ServerMessageType.LAST_TURN, playerNum);
-    }
-
-    override void playerJoined(int number, string name)
-    {
-        send(ServerMessageType.PLAYER_JOIN, number, name);
-    }
-
-    override void playerLeft(int playerNum)
-    {
-        send(ServerMessageType.PLAYER_LEFT, playerNum);
-    }
-
-    override void waiting(int playerNum)
-    {
-        send(ServerMessageType.WAITING, playerNum);
-    }
-
-    override void reconnected(int playerNum)
-    {
-        send(ServerMessageType.RECONNECTED, playerNum);
-    }
-
-    override void resumeDraw()
-    {
-        send(ServerMessageType.RESUME_DRAW);
-    }
-
-    override void winner(int playerNum)
-    {
-        send(ServerMessageType.WINNER, playerNum);
-    }
-
-    override void newGame()
-    {
-        send(ServerMessageType.NEW_GAME);
-    }
-
-    override void currentScores(ref ServerGameModel model)
-    {
-        char[] message = (ServerMessageType.CURRENT_SCORES).dup;
-        message.reserve(48);
-
-        foreach (key; model.playerKeys)
-        {
-            message ~= ' ' ~ key.to!string ~ ' ' ~ model[key].getScore.to!string;
+            return _socket;
         }
 
-        _socket.send(message ~ '\n');
-    }
-
-    override void updateCards(int playerNumber, PlayerGrid grid)
-    {
-        char[] message = ServerMessageType.GRID_CARDS ~ ' ' ~ playerNumber.to!(char[]);
-        message.reserve(48);
-
-        const Card[][] cards = grid.getCards();
-
-        foreach (row; 0 .. 3)
+        ServerPlayer player() @property pure nothrow @nogc //stfu
         {
-            foreach (col; 0 .. 4)
+            return _player;
+        }
+
+        void player(ServerPlayer p) @property pure nothrow @nogc
+        {
+            _player = p;
+        }
+
+        override void deal(int dealer)
+        {
+            send(ServerMessageType.DEAL, dealer);
+        }
+
+        override void chooseFlip()
+        {
+            send(ServerMessageType.CHOOSE_FLIP);
+        }
+
+        override void discardFlippedOver(int card)
+        {
+            send(ServerMessageType.DISCARD_CARD, card);
+        }
+
+        override void changeTurn(int playerNum)
+        {
+            send(ServerMessageType.CHANGE_TURN, playerNum);
+        }
+
+        override void yourTurn()
+        {
+            send(ServerMessageType.YOUR_TURN);
+        }
+
+        override void drawpile(int playerNum)
+        {
+            send(ServerMessageType.DRAWPILE, playerNum);
+        }
+
+        override void drawpilePlace(int playerNum, int row, int col, int card, int discard)
+        {
+            send(ServerMessageType.DRAWPILE_PLACE, playerNum, row, col, card, discard);
+        }
+
+        override void drawpileReject(int playerNum, int card)
+        {
+            send(ServerMessageType.DRAWPILE_REJECT, playerNum, card);
+        }
+
+        override void revealed(int playerNum, int row, int col, int card)
+        {
+            send(ServerMessageType.REVEAL, playerNum, row, col, card);
+        }
+
+        override void discardSwap(int playerNum, int row, int col, int taken, int thrown)
+        {
+            send(ServerMessageType.DISCARD_SWAP, playerNum, row, col, taken, thrown);
+        }
+
+        override void columnRemoved(int playerNum, int columnIndex)
+        {
+            send(ServerMessageType.COLUMN_REMOVAL, playerNum, columnIndex);
+        }
+
+        override void lastTurn(int playerNum)
+        {
+            send(ServerMessageType.LAST_TURN, playerNum);
+        }
+
+        override void playerJoined(int number, string name)
+        {
+            send(ServerMessageType.PLAYER_JOIN, number, name);
+        }
+
+        override void playerLeft(int playerNum)
+        {
+            send(ServerMessageType.PLAYER_LEFT, playerNum);
+        }
+
+        override void waiting(int playerNum)
+        {
+            send(ServerMessageType.WAITING, playerNum);
+        }
+
+        override void reconnected(int playerNum)
+        {
+            send(ServerMessageType.RECONNECTED, playerNum);
+        }
+
+        override void resumeDraw()
+        {
+            send(ServerMessageType.RESUME_DRAW);
+        }
+
+        override void winner(int playerNum)
+        {
+            send(ServerMessageType.WINNER, playerNum);
+        }
+
+        override void newGame()
+        {
+            send(ServerMessageType.NEW_GAME);
+        }
+
+        override void currentScores(ref ServerGameModel model)
+        {
+            char[] message = (ServerMessageType.CURRENT_SCORES).dup;
+            message.reserve(48);
+
+            foreach (key; model.playerKeys)
             {
-                auto c = cards[row][col];
-
-                if (c is null) {
-                    message ~= " _";
-                }
-                else if (! c.revealed) {
-                    message ~= " ?";
-                }
-                else {
-                    message ~= " " ~ (cast(int) c.rank).to!string;
-                }
-
+                message ~= ' ' ~ key.to!string ~ ' ' ~ model[key].getScore.to!string;
             }
-        }
-        _socket.send(message ~ '\n');
-    }
 
-    mixin SendMessage!ServerMessageType;
+            _socket.send(message ~ '\n');
+        }
+
+        override void updateCards(int playerNumber, PlayerGrid grid)
+        {
+            char[] message = ServerMessageType.GRID_CARDS ~ ' ' ~ playerNumber.to!(char[]);
+            message.reserve(48);
+
+            const Card[][] cards = grid.getCards();
+
+            foreach (row; 0 .. 3)
+            {
+                foreach (col; 0 .. 4)
+                {
+                    auto c = cards[row][col];
+
+                    if (c is null) {
+                        message ~= " _";
+                    }
+                    else if (! c.revealed) {
+                        message ~= " ?";
+                    }
+                    else {
+                        message ~= " " ~ (cast(int) c.rank).to!string;
+                    }
+
+                }
+            }
+            _socket.send(message ~ '\n');
+        }
+
+        mixin SendMessage!ServerMessageType;
+    }
 }
 
 mixin template SendMessage(T)
@@ -662,7 +662,7 @@ private:
 
     this(ServerMessageType type, int playerNumber, string name) pure
     {
-        enforce!Error(name !is null, "Illegal argument: name cannot be null");
+        enforce!Error(name.length > 0, "Illegal argument: name cannot be empty");
 
         this.type = type;
         this.playerNumber = playerNumber;

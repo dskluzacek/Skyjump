@@ -41,7 +41,7 @@ import textfield;
 import theme;
 
 enum window_title = "Skyjump";
-enum version_str  = "v0.0.4-debug";
+enum version_str  = "v0.0.4";
 
 enum ushort port_number = 7684;
 enum connect_failed_str = "Failed to connect to server.";
@@ -64,7 +64,7 @@ version (Android) {
 	enum ui_font_size = 52;
 	enum medium_font_size = 64;
 	enum small_font_size = 48;
-	enum tiny_font_size = 34;
+	enum tiny_font_size = 36;
 	enum name_font_size = 48;
 	enum text_field_font_size = 72;
 
@@ -142,8 +142,8 @@ private
 	Sound drawSound;
 	Sound yourTurnSound;
 	Sound lastTurnSound;
-	SDL_Cursor* arrowCursor;
-	SDL_Cursor* iBeamCursor;
+	version (Android) {} else SDL_Cursor* arrowCursor;
+	version (Android) {} else SDL_Cursor* iBeamCursor;
 	OpponentGrid[] opponentGrids;
 	Background gameBackground;
 	DrawPile drawPile;
@@ -348,7 +348,7 @@ void run() @system
 	bool quit = false;
 
 	auto controller = KeyboardController();
-	controller.setQuitHandler( { quit = true; } );
+	version (Android) {} else { controller.setQuitHandler({ quit = true; }); }
 
 	load(renderer);
 	window.visible = true;
@@ -443,12 +443,16 @@ void load(ref Renderer renderer)
 
 void loadConnectUI(ref Renderer renderer)
 {
-	version (Android) { } else {
+	enum text_field_padding =  4,
+	     server_addr_max    = 20;
+	
+	version (Android) {
+		enum arrowCursor = null;
+		enum iBeamCursor = null;
+	} else {
 		arrowCursor = createCursor(SDL_SYSTEM_CURSOR_ARROW);
 		iBeamCursor = createCursor(SDL_SYSTEM_CURSOR_IBEAM);
 	}
-	enum text_field_padding =  4,
-	     server_addr_max    = 20;
 
 	nameTextField = new TextField(textFieldFont, name_field_dims, text_field_padding, arrowCursor, iBeamCursor);
 	nameTextField.maxTextLength = MAX_NAME_LENGTH;
@@ -902,11 +906,12 @@ void pollInputEvents(ref bool quit, ref KeyboardController controller, ref Rende
 		}
 		else if (e.type == SDL_KEYDOWN)
 		{
+			// e.key is SDL_KeyboardEvent field in SDL_Event
 			if ( ! textWidget.empty && textWidget.front.keyboardEvent(e.key, renderer) )
 			{
 				continue;
 			}
-
+			   
 			if ((e.key.keysym.scancode == SDL_SCANCODE_LEFT || e.key.keysym.scancode == SDL_SCANCODE_RIGHT
 			    || e.key.keysym.scancode == SDL_SCANCODE_UP || e.key.keysym.scancode == SDL_SCANCODE_DOWN
 			    || e.key.keysym.sym == SDLK_TAB) && ! e.key.repeat)
@@ -920,7 +925,10 @@ void pollInputEvents(ref bool quit, ref KeyboardController controller, ref Rende
 			}
 			else
 			{
-				controller.handleEvent(e.key); // e.key is SDL_KeyboardEvent field in SDL_Event
+				version (Android) { }
+				else {
+					controller.handleEvent(e.key); 
+				}
 			}
 		}
 		else if (e.type == SDL_MOUSEMOTION)

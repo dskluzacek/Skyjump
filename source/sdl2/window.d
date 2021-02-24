@@ -17,7 +17,7 @@ struct Window
 		bool isDestroyed = false;
 	}
 
-@trusted:
+@trusted: //stfu
 
 	this( in char[] title,
 		  int x, int y,
@@ -72,7 +72,7 @@ nothrow:
 		return cast(bool) SDL_GetWindowGrab(raw_window);
 	}
 	
-	Point position() @property
+	Point position()
 	{
 		Point result;
 		SDL_GetWindowPosition(raw_window, &result.x, &result.y);
@@ -84,33 +84,33 @@ nothrow:
 		setPosition(p.x, p.y);
 	}
 	
-	Tuple!(int, "w", int, "h") dimensions() @property
+	Tuple!(int, "w", int, "h") dimensions()
 	{
 		Tuple!(int, "w", int, "h") dims;
 		SDL_GetWindowSize(raw_window, &(dims.w), &(dims.h));
 		return dims;
 	}
 	
-	int width() @property
+	int width()
 	{
 		int width;
 		SDL_GetWindowSize(raw_window, &width, null);
 		return width;
 	}
 	
-	int height() @property
+	int height()
 	{
 		int height;
 		SDL_GetWindowSize(raw_window, null, &height);
 		return height;
 	}
 	
-	int id() @property
+	int id()
 	{
 		return SDL_GetWindowID(raw_window);
 	}
 	
-	bool visible() @property
+	bool visible() @property //stfu
 	{
 		return testFlag(SDL_WINDOW_SHOWN);
 	}

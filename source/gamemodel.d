@@ -10,7 +10,7 @@ import player;
 import card;
 import util;
 import playergrid;
-import net : ServerPlayer;
+version (server) import net : ServerPlayer;
 
 enum GameState
 {
@@ -238,6 +238,8 @@ struct GameModel
         handNumber = 1;
     }
 }
+
+version (server):
 
 struct ServerGameModel
 {
