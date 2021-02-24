@@ -1,6 +1,6 @@
 #!/bin/sh
 
-ldc2 -I=~/.dub/packages/bindbc-sdl-0.19.1/bindbc-sdl/source \
+ldc2 -Oz --release --boundscheck=on -I=~/.dub/packages/bindbc-sdl-0.19.1/bindbc-sdl/source \
 -I=~/.dub/packages/bindbc-loader-0.3.2/bindbc-loader/source \
 -i  -d-version=SDL_Image -d-version=SDL_Mixer -d-version=SDL_TTF -mtriple=armv7a--linux-android \
 source/sdl2/image.d source/sdl2/mixer.d source/sdl2/renderer.d source/sdl2/sdl.d \
@@ -10,7 +10,7 @@ source/gamemodel.d source/keyboard.d source/label.d source/net.d source/player.d
 source/playergrid.d source/textfield.d source/theme.d source/util.d \
 -shared -of=armv7a/libmain.so -L-soname -Llibmain.so -L-llog -L-landroid -L-lEGL -L-lGLESv1_CM
 
-ldc2 -I=~/.dub/packages/bindbc-sdl-0.19.1/bindbc-sdl/source \
+ldc2 -Oz --release --boundscheck=on -I=~/.dub/packages/bindbc-sdl-0.19.1/bindbc-sdl/source \
 -I=~/.dub/packages/bindbc-loader-0.3.2/bindbc-loader/source \
 -i  -d-version=SDL_Image -d-version=SDL_Mixer -d-version=SDL_TTF -mtriple=aarch64--linux-android \
 source/sdl2/image.d source/sdl2/mixer.d source/sdl2/renderer.d source/sdl2/sdl.d \
