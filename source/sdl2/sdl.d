@@ -47,10 +47,10 @@ abstract final class SDL2
  */
 final class SDL2Exception : Exception
 {
-	this(string message, string file = __FILE__, size_t line = __LINE__) pure @safe nothrow
-	{
-		super(message, file, line);
-	}
+    this(string message, string file = __FILE__, size_t line = __LINE__) pure @safe nothrow
+    {
+        super(message, file, line);
+    }
 }
 
 /**
@@ -59,10 +59,10 @@ final class SDL2Exception : Exception
  */
 void sdl2Enforce(T = SDL2Exception)(bool value, lazy const(char)[] message) @trusted
 {
-	if (! value)
-	{
-		throw new T( message.to!string ~ ": " ~ SDL_GetError().to!string );
-	}
+    if (! value)
+    {
+        throw new T( message.to!string ~ ": " ~ SDL_GetError().to!string );
+    }
 }
 
 /**
@@ -70,6 +70,6 @@ void sdl2Enforce(T = SDL2Exception)(bool value, lazy const(char)[] message) @tru
  */
 const(char)[] getSDL2Error() @trusted @nogc nothrow
 {
-	return fromStringz( SDL_GetError() );
+    return fromStringz( SDL_GetError() );
 }
 

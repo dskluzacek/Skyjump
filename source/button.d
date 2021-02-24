@@ -1,3 +1,9 @@
+/*
+ * button.d
+ * 
+ * Copyright (c) 2021 David P Skluzacek
+ */
+
 module button;
 @safe:
 
@@ -44,7 +50,7 @@ class Button : Clickable, Focusable
 
     void setText(string str)
     {
-	    label.setText(str);
+        label.setText(str);
     }
 
     void visible(bool visible) @property pure nothrow @nogc
@@ -58,7 +64,7 @@ class Button : Clickable, Focusable
 
     void draw(ref Renderer renderer)
     {
-	    if (! isVisible) {
+        if (! isVisible) {
             return;
         }
 
@@ -71,7 +77,7 @@ class Button : Clickable, Focusable
 
         if ((shouldBeHighlighted() && windowFocusType != FocusType.STRONG) || focusType == FocusType.STRONG) {
             renderer.setDrawColor(pale_indigo[]);
-	    }
+        }
         else {
             renderer.setDrawColor(255, 255, 255);
         }

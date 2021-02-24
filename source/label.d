@@ -1,3 +1,9 @@
+/*
+ * label.d
+ * 
+ * Copyright (c) 2021 David P Skluzacek
+ */
+
 module label;
 @safe:
 
@@ -79,7 +85,7 @@ final class Label
         if (color == this.color)
             return;
 
-	    this.color = color;
+        this.color = color;
 
         if (_autoReRender && _renderer !is null) {
             renderImpl(*_renderer);
