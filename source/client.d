@@ -34,6 +34,7 @@ import sdl2.sdl,
 import gamemodel;
 import keyboard;
 import background;
+import texturesheet;
 import animation;
 import card;
 import player;
@@ -138,8 +139,8 @@ private
     Font tinyFont;
     Font uiFont;
     Font textFieldFont;
-    Texture disconnectedIcon;
-    Texture victoryIcon;
+    TextureRegion disconnectedIcon;
+    TextureRegion victoryIcon;
     Texture woodTexture;
     Texture greenFeltTexture;
     Sound dealSound;
@@ -441,9 +442,6 @@ void load(ref Renderer renderer)
                            HorizontalPositionMode.RIGHT, VerticalPositionMode.CENTER);
     themeLabel.renderText(renderer);
 
-    disconnectedIcon = renderer.loadTexture(assetPath ~ "network-x.png");
-    victoryIcon = renderer.loadTexture(assetPath ~ "star.png");
-
     loadCardsAndSounds(renderer, assetPath);
 }
 
@@ -504,32 +502,44 @@ void loadConnectUI(ref Renderer renderer)
 
 void loadCardsAndSounds(ref Renderer renderer, string assetPath)
 {
-    Card.setTexture(CardRank.NEGATIVE_TWO, renderer.loadTexture(assetPath ~ "-2.png"));
-    Card.setTexture(CardRank.NEGATIVE_ONE, renderer.loadTexture(assetPath ~ "-1.png"));
-    Card.setTexture(CardRank.ZERO, renderer.loadTexture(assetPath ~ "0.png"));
-    Card.setTexture(CardRank.ONE, renderer.loadTexture(assetPath ~ "1.png"));
-    Card.setTexture(CardRank.TWO, renderer.loadTexture(assetPath ~ "2.png"));
-    Card.setTexture(CardRank.THREE, renderer.loadTexture(assetPath ~ "3.png"));
-    Card.setTexture(CardRank.FOUR, renderer.loadTexture(assetPath ~ "4.png"));
-    Card.setTexture(CardRank.FIVE, renderer.loadTexture(assetPath ~ "5.png"));
-    Card.setTexture(CardRank.SIX, renderer.loadTexture(assetPath ~ "6.png"));
-    Card.setTexture(CardRank.SEVEN, renderer.loadTexture(assetPath ~ "7.png"));
-    Card.setTexture(CardRank.EIGHT, renderer.loadTexture(assetPath ~ "8.png"));
-    Card.setTexture(CardRank.NINE, renderer.loadTexture(assetPath ~ "9.png"));
-    Card.setTexture(CardRank.TEN, renderer.loadTexture(assetPath ~ "10.png"));
-    Card.setTexture(CardRank.ELEVEN, renderer.loadTexture(assetPath ~ "11.png"));
-    Card.setTexture(CardRank.TWELVE, renderer.loadTexture(assetPath ~ "12.png"));
-    Card.setTexture(CardRank.UNKNOWN, renderer.loadTexture(assetPath ~ "back-grad.png"));
+    Texture sheetTexture = renderer.loadTexture(assetPath ~ "sheet.png");
+    TextureSheet sheet = loadTextureSheet(assetPath ~ "sheet", sheetTexture);
+    
+    Card.setTexture(CardRank.NEGATIVE_TWO, sheet["-2"]);
+    Card.setTexture(CardRank.NEGATIVE_ONE, sheet["-1"]);
+    Card.setTexture(CardRank.ZERO, sheet["0"]);
+    Card.setTexture(CardRank.ONE, sheet["1"]);
+    Card.setTexture(CardRank.TWO, sheet["2"]);
+    Card.setTexture(CardRank.THREE, sheet["3"]);
+    Card.setTexture(CardRank.FOUR, sheet["4"]);
+    Card.setTexture(CardRank.FIVE, sheet["5"]);
+    Card.setTexture(CardRank.SIX, sheet["6"]);
+    Card.setTexture(CardRank.SEVEN, sheet["7"]);
+    Card.setTexture(CardRank.EIGHT, sheet["8"]);
+    Card.setTexture(CardRank.NINE, sheet["9"]);
+    Card.setTexture(CardRank.TEN, sheet["10"]);
+    Card.setTexture(CardRank.ELEVEN, sheet["11"]);
+    Card.setTexture(CardRank.TWELVE, sheet["12"]);
+    Card.setTexture(CardRank.UNKNOWN, sheet["back-grad"]);
 
-    Card.setShadowTexture(renderer.loadTexture(assetPath ~ "shadow.png"));
-    Card.setStackShadowTexture(renderer.loadTexture(assetPath ~ "shadow2.png"));
+    Card.setShadowTexture(sheet["shadow"]);
+    Card.setStackShadowTexture(sheet["shadow2"]);
 
-    dealSound = loadWAV(assetPath ~ "playcard.wav");
-    flipSound = loadWAV(assetPath ~ "cardPlace3.wav");
-    discardSound = loadWAV(assetPath ~ "cardShove1.wav");
-    drawSound = loadWAV(assetPath ~ "draw.wav");
-    yourTurnSound = loadWAV(assetPath ~ "cuckoo.wav");
-    lastTurnSound = loadWAV(assetPath ~ "UI_007.wav");
+    disconnectedIcon = sheet["network-x"];
+    victoryIcon = sheet["star"];
+
+    // version (Windows) {
+        enum soundExtension = ".wav";
+    // }
+    // else {
+    //     enum soundExtension = ".ogg";
+    // }
+    dealSound = loadWAV(assetPath ~ "playcard" ~ soundExtension);
+    flipSound = loadWAV(assetPath ~ "cardPlace3" ~ soundExtension);
+    discardSound = loadWAV(assetPath ~ "cardShove1" ~ soundExtension);
+    drawSound = loadWAV(assetPath ~ "draw" ~ soundExtension);
+    yourTurnSound = loadWAV(assetPath ~ "cuckoo" ~ soundExtension);
+    lastTurnSound = loadWAV(assetPath ~ "UI_007" ~ soundExtension);
 }
 
 version (Android)
@@ -664,7 +674,8 @@ void mainLoop(ref Window window,
             playerCurrTurn.ifPresent!( p => localPlayerTurn = p is localPlayer );
 
             if (numberOfAnimations == 0 && pendingActions.empty 
-                && gcCollectNext && gcRun == false && localPlayerTurn == false) {
+                && gcCollectNext && gcRun == false && localPlayerTurn == false)
+            {
                 () @trusted { GC.collect(); } ();
                 gcRun = true;
             }
@@ -1901,7 +1912,7 @@ final class PlayerLabel
 
         if (player.isWinner) {
             Point labelPos = nameLabel.getPosition();
-            renderer.renderCopy(victoryIcon, labelPos.x + nameLabel.getWidth + icon_gap, labelPos.y - 8);
+            renderer.renderCopyTR(victoryIcon, labelPos.x + nameLabel.getWidth + icon_gap, labelPos.y - 8);
         }
         auto playerTurn = model.playerWhoseTurnItIs();
 
@@ -1981,7 +1992,7 @@ final class OpponentGrid
 
             Point labelPos = playerLabel.nameLabel.getPosition();
             int x = labelPos.x - disconnectedIcon.width - icon_gap;
-            renderer.renderCopy(disconnectedIcon, x, labelPos.y - 5);
+            renderer.renderCopyTR(disconnectedIcon, x, labelPos.y - 5);
         }
 
         playerLabel.render(renderer, overrideColor);
