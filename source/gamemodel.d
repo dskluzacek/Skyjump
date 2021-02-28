@@ -5,12 +5,15 @@ import std.typecons;
 import std.algorithm : map, each, remove, count, all, sum, minElement;
 import std.exception : enforce;
 import std.conv : to;
+import std.random : uniform;
 
 import player;
 import card;
 import util;
 import playergrid;
 version (server) import net : ServerPlayer;
+
+enum MAX_PLAYERS = 5;
 
 enum GameState
 {
@@ -99,18 +102,33 @@ struct GameModel
         return discardPile.size();
     }
 
-    ubyte addPlayer(Player p) pure nothrow
+    ubyte addPlayer(Player p)
     {
-        foreach (ubyte n; 0 .. 256)
+        if ( numberOfPlayers() < MAX_PLAYERS )
         {
-            if (n !in players)
+            ubyte number = uniform!("[)", ubyte, ubyte)(0, MAX_PLAYERS);
+        
+            while (number in players)
             {
-                players[n] = p;
-                return n;
+                number = uniform!("[)", ubyte, ubyte)(0, MAX_PLAYERS);
+            }
+            assert(number !in players);
+
+            players[number] = p;
+            return number;
+        } 
+        else
+        {
+            foreach (ubyte n; 0 .. 256)
+            {
+                if (n !in players)
+                {
+                    players[n] = p;
+                    return n;
+                }
             }
         }
-
-        throw new Error("no unused keys");
+        assert(0);
     }
 
     void setPlayer(Player p, ubyte number) pure nothrow

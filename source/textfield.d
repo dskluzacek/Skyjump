@@ -2,8 +2,12 @@ module textfield;
 @safe:
 
 import std.conv : to;
+import std.range.primitives : front, popFront, empty;
+import std.range : chain, take;
+import std.algorithm : min, filter, map;
+import std.array : array;
 import std.string : fromStringz;
-import std.utf : toUTFz;
+import std.utf : toUTFz, codeLength;
 import std.typecons : tuple;
 import std.math : abs;
 import std.exception : enforce;
@@ -26,6 +30,7 @@ interface TextComponent
     bool acceptingTextInput();
     void inputEvent(SDL_TextInputEvent e, ref Renderer r);
     bool keyboardEvent(SDL_KeyboardEvent e, ref Renderer r);
+    void paste(in char[] clipboard, ref Renderer r);
 }
 
 final class TextField : TextComponent, Focusable, Clickable
@@ -44,7 +49,7 @@ final class TextField : TextComponent, Focusable, Clickable
         Texture renderedText;
         Focusable onEnterItem;
         dchar[] text;
-        int maxLength = -1;
+        size_t maxLength = -1;
         int padding;
         int fontHeight;
         bool isVisible = true;
@@ -140,7 +145,7 @@ final class TextField : TextComponent, Focusable, Clickable
         _receivingInput = value;
     }
 
-    void maxTextLength(int max) @property pure nothrow @nogc
+    void maxTextLength(size_t max) @property pure nothrow @nogc
     {
         this.maxLength = max;
     }
@@ -193,23 +198,25 @@ final class TextField : TextComponent, Focusable, Clickable
 
     override void inputEvent(SDL_TextInputEvent e, ref Renderer r) @trusted
     {
-        auto str = fromStringz( &e.text[0] ).to!(dchar[]);
+        auto str = fromStringz( &e.text[0] );
+        auto inputLength = str.codeLength!dchar;
 
         if (str == "\t" || str == "\n" || str == "\r\n" || str == "\r") {
             return;
         }
-        else if (maxLength >= 0 && str.length + text.length > maxLength) {
+        else if (maxLength >= 0 && inputLength + text.length > maxLength) {
             return;
         }
 
         if (cursorPosition == text.length) {
-            text ~= str;
-
+            text ~= str.to!(dchar[]);
         }
         else {
-            text = text[0 .. cursorPosition] ~ str ~ text[cursorPosition .. $];
+            text = text[0 .. cursorPosition].chain(str)
+                                            .chain(text[cursorPosition .. $])
+                                            .array;
         }
-        cursorPosition += str.length;
+        cursorPosition += inputLength;
 
         renderText(r);
     }
@@ -282,6 +289,23 @@ final class TextField : TextComponent, Focusable, Clickable
         }
 
         return false;
+    }
+
+    override void paste(in char[] clipboard, ref Renderer r)
+    {
+        static assert( is(typeof(clipboard.front) == dchar) );
+        assert(clipboard.length > 0);
+        
+        auto pasted = clipboard.filter!(c => c != '\r' && c != '\t')
+                               .map!(ch => ch == '\n' ? ' ' : ch);
+
+        text = text[0 .. cursorPosition].chain(pasted)
+                                        .chain(text[cursorPosition .. $])
+                                        .take(maxLength)
+                                        .array;
+
+        cursorPosition = min(cursorPosition + pasted.codeLength!dchar, maxLength);
+        renderText(r);
     }
 
     override void mouseButtonDown(Point p)

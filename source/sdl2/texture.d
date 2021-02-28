@@ -31,19 +31,19 @@ struct Texture
     void setBlendMode(SDL_BlendMode mode)
     {
         auto result = SDL_SetTextureBlendMode(raw_texture, mode);
-        enforce(result == 0, getSDL2Error());
+        sdl2Enforce(result == 0, "SDL_SetTextureBlendMode failed");
     }
     
     void setAlphaMod(ubyte alpha)
     {
         auto result = SDL_SetTextureAlphaMod(raw_texture, alpha);
-        enforce(result == 0, getSDL2Error());
+        sdl2Enforce(result == 0, "SDL_SetTextureAlphaMod failed");
     }
     
     void setColorMod(ubyte red, ubyte green, ubyte blue)
     {
         auto result = SDL_SetTextureColorMod(raw_texture, red, green, blue);
-        enforce(result == 0, getSDL2Error());
+        sdl2Enforce(result == 0, "SDL_SetTextureColorMod failed");
     }
     
     void[] lockTexture()(auto ref const Rectangle rect)  
@@ -51,8 +51,8 @@ struct Texture
         void* pixels;
         int pitch;
         
-        int result = SDL_LockTexture(raw_texture, &rect, &pixels, &pitch);
-        enforce(result == 0, getSDL2Error());
+        auto result = SDL_LockTexture(raw_texture, &rect, &pixels, &pitch);
+        sdl2Enforce(result == 0, "SDL_LockTexture failed");
         
         return pixels[0 .. (pitch * rect.w)];
     }

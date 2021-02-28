@@ -6,6 +6,7 @@ configuration "SkyjumpApp" {
     dependency "bindbc-sdl" version="~>0.19.1"
     versions "SDL_Image" "SDL_TTF" "SDL_Mixer"
     buildRequirements "requireContracts" "requireBoundsCheck"
+    lflags "/SUBSYSTEM:windows" "/ENTRY:mainCRTStartup" platform="windows-x86_64-dmd"
     targetName "skyjump"
 }
 

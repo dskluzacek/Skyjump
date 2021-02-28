@@ -358,7 +358,7 @@ void run() @system
 
     load(renderer);
     window.visible = true;
-    masterLoop(window, renderer, quit, controller);
+    enterMainLoop(window, renderer, quit, controller);
 }
 
 void load(ref Renderer renderer)
@@ -576,7 +576,7 @@ void setTheme(Theme theme, ref Renderer renderer)
     themeLabel.renderText(renderer);
 }
 
-void masterLoop(ref Window window,
+void enterMainLoop(ref Window window,
                 ref Renderer renderer,
                 ref bool quit,
                 ref KeyboardController controller)
@@ -646,10 +646,12 @@ void mainLoop(ref Window window,
         if ( moveAnim.process() )
         {
             static bool gcRun = true;
+            static bool gcCollectNext;  // flag used to skip every other possible GC.collect()
 
             if (numberOfAnimations > 0) {
                 --numberOfAnimations;
                 gcRun = false;
+                gcCollectNext = ! gcCollectNext;
             }
 
             while (numberOfAnimations == 0 && ! pendingActions.empty) {
@@ -657,7 +659,12 @@ void mainLoop(ref Window window,
                 pendingActions.removeFront();
             }
 
-            if (numberOfAnimations == 0 && pendingActions.empty && gcRun == false) {
+            bool localPlayerTurn = false;
+            auto playerCurrTurn = model.playerWhoseTurnItIs();
+            playerCurrTurn.ifPresent!( p => localPlayerTurn = p is localPlayer );
+
+            if (numberOfAnimations == 0 && pendingActions.empty 
+                && gcCollectNext && gcRun == false && localPlayerTurn == false) {
                 () @trusted { GC.collect(); } ();
                 gcRun = true;
             }
@@ -892,6 +899,11 @@ void pollInputEvents(ref bool quit, ref KeyboardController controller, ref Rende
         return SDL_PollEvent(&ev);
     }
 
+    @trusted auto getModState()
+    {
+        return SDL_GetModState();
+    }
+
     SDL_Event e;
     auto textWidget = textComponents.filter!(a => a.acceptingTextInput);
 
@@ -913,9 +925,21 @@ void pollInputEvents(ref bool quit, ref KeyboardController controller, ref Rende
         else if (e.type == SDL_KEYDOWN)
         {
             // e.key is SDL_KeyboardEvent field in SDL_Event
-            if ( ! textWidget.empty && textWidget.front.keyboardEvent(e.key, renderer) )
+            
+            if ( ! textWidget.empty )
             {
-                continue;
+                if (e.key.keysym.scancode == SDL_SCANCODE_V && getModState() & KMOD_CTRL)
+                {
+                    SDLClipboardText text = SDLClipboardText.getClipboardText();
+                    
+                    if (text.hasText) {
+                        textWidget.front.paste(text.get, renderer);
+                    }
+                }
+                else if ( textWidget.front.keyboardEvent(e.key, renderer) )
+                {
+                    continue;
+                }
             }
                
             if ((e.key.keysym.scancode == SDL_SCANCODE_LEFT || e.key.keysym.scancode == SDL_SCANCODE_RIGHT

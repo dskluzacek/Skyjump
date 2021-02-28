@@ -1,9 +1,8 @@
 module sdl2.sdl;
 
 public import bindbc.sdl;
-import std.conv,
-       std.string,
-       std.typecons;
+import std.conv : to;
+import std.string : fromStringz;
 import bindbc.sdl,
        bindbc.sdl.ttf,
        bindbc.sdl.mixer;
@@ -66,10 +65,48 @@ void sdl2Enforce(T = SDL2Exception)(bool value, lazy const(char)[] message) @tru
 }
 
 /**
- * Retrieves the error message from SDL_GetError() and returns it.
+ * Wrapper struct that frees the string returned by
+ * SDL_GetClipboardText() in its destructor.
  */
-const(char)[] getSDL2Error() @trusted @nogc nothrow
+struct SDLClipboardText
 {
-    return fromStringz( SDL_GetError() );
-}
+@safe:
 
+    private char[] sdlString = null;
+
+    @disable this();
+    @disable this(this);
+
+    static SDLClipboardText getClipboardText() nothrow @nogc @trusted
+    {
+        SDLClipboardText result = SDLClipboardText.init;
+        
+        if ( SDL_HasClipboardText() ) {
+            result.sdlString = SDL_GetClipboardText().fromStringz;
+        }
+
+        return result;
+    }
+    
+    ~this() nothrow @nogc @trusted
+    {
+        if (sdlString.ptr !is null) {
+            SDL_free(sdlString.ptr);
+        }
+    }
+
+    bool hasText() const nothrow @nogc pure
+    {
+        return sdlString !is null;
+    }
+
+    /**
+    * Returns the malloc-ed string retured by SDL without copying. $(BR)
+    * DO NOT escape a reference to it outside the scope in which this SDLClipboardText
+    * was declared, as it will be freed when this struct goes out of scope.
+    */
+    const(char[]) get() const nothrow @nogc pure
+    {
+        return sdlString;
+    }
+}

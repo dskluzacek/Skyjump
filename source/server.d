@@ -22,9 +22,8 @@ import net;
 
 enum ushort PORT = 7684;
 enum BACKLOG = 5;
-enum MAX_PLAYERS = 5;
 
-enum VERSION_STR = "0.0.4";
+enum VERSION_STR = "0.0.5-debug";
 
 private
 {
@@ -63,21 +62,21 @@ void main() @system
             {
                 write("$ ");
                 stdout.flush();
+                return;
             }
-            else if (args[0] == "start")
+
+            switch (args[0])
             {
+            case "start":
                 startGame();
-            }
-            else if (args[0] == "next")
-            {
+                break;
+            case "next":
                 startNextHand();
-            }
-            else if (args[0] == "list")
-            {
+                break;
+            case "list":
                 listPlayers();
-            }
-            else if (args[0] == "drop")
-            {
+                break;
+            case "drop":
                 if (args.length >= 2) {
                     try {
                         dropPlayer(args[1].to!int);
@@ -85,54 +84,44 @@ void main() @system
                     catch (ConvException e) {
                         writeMsg("Invalid number");
                     }
-                }
-                else {
+                } else {
                     writeMsg("Need player number");
                 }
-            }
-            else if (args[0] == "kick")
-            {
-                if (args.length >= 2)
-                {
+                break;
+            case "kick":
+                if (args.length >= 2) {
                     try {
                         kickPlayer(args[1].to!int);
                     }
                     catch (ConvException e) {
                         writeMsg("Invalid number");
                     }
-                }
-                else {
+                } else {
                     writeMsg("Need player number");
                 }
-            }
-            else if (args[0] == "setname")
-            {
-                if (args.length >= 2)
-                {
+                break;
+            case "setname":
+                if (args.length >= 2) {
                     setNameOfPlayer(args[1 .. $]);
-                }
-                else {
+                } else {
                     writeMsg("Too few arguments");
                 }
-            }
-            else if (args[0] == "set")
-            {
-                if (args.length == 5)
-                {
+                break;
+            case "set":
+                if (args.length == 5) {
                     try {
                         setCard(args[1 .. $]);
                     }
                     catch (Exception e) {
                         writeMsg("Invalid argument");
                     }
-                }
-                else {
+                } else {
                     writeMsg("Wrong number of arguments");
                 }
-            }
-            else
-            {
+                break;
+            default:
                 writeMsg("Command not recognized");
+                break;
             }
         });
     }
@@ -267,7 +256,9 @@ void listPlayers()
 
 void dropPlayer(int number)
 {
-    if (model.numberOfPlayers < 3 && model.getState != GameState.NOT_STARTED && model.getState != GameState.END_GAME) {
+    if (model.numberOfPlayers < 3
+            && model.getState != GameState.NOT_STARTED && model.getState != GameState.END_GAME)
+    {
         writeMsg("Can't drop a player - not enough players would remain");
         return;
     }
@@ -285,7 +276,9 @@ void dropPlayer(int number)
 
 void kickPlayer(int number)
 {
-    if (model.numberOfPlayers < 3 && model.getState != GameState.NOT_STARTED && model.getState != GameState.END_GAME) {
+    if (model.numberOfPlayers < 3
+            && model.getState != GameState.NOT_STARTED && model.getState != GameState.END_GAME)
+    {
         writeMsg("Can't kick a player - not enough players would remain");
         return;
     }
