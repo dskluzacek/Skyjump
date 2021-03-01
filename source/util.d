@@ -58,15 +58,15 @@ pure float distance(T)(T a, T b) @safe @nogc nothrow
     return sqrt(dx * dx + dy * dy);
 }
 
-pure T intersectionArea(T = size_t)(Rectangle a, Rectangle b) @safe @nogc nothrow
+pure long intersectionArea()(Rectangle a, Rectangle b) @safe @nogc nothrow
 {
     auto maxX_a = a.x + a.w;
     auto maxX_b = b.x + b.w;
     auto maxY_a = a.y + a.h;
     auto maxY_b = b.y + b.h;
 
-    T dx = min(maxX_a, maxX_b) - max(a.x, b.x);
-    T dy = min(maxY_a, maxY_b) - max(a.y, b.y);
+    long dx = min(maxX_a, maxX_b) - max(a.x, b.x);
+    long dy = min(maxY_a, maxY_b) - max(a.y, b.y);
 
     if (dx >= 0 && dy >= 0) {
         return dx * dy;

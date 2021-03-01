@@ -71,6 +71,7 @@ mixin template DragAndDrop()
                 if ( (targetBox.containsPoint(p) && percent > 0.5f) || percent > 0.7f ) {
                     hasBeenDropped = true;
                     target.drop(targetBox);
+                    return;
                 }
             }
         }
