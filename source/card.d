@@ -1,10 +1,16 @@
+/*
+ * card.d
+ * 
+ * Copyright (c) 2021 David P Skluzacek
+ */
+
 module card;
 @safe:
 
 import std.random : uniform;
 import std.algorithm : remove;
-import std.array;
-import std.typecons;
+import std.range.primitives;
+import std.typecons : tuple, Nullable, nullable;
 import std.exception : enforce;
 import std.range : ElementType, isInputRange;
 
@@ -21,6 +27,7 @@ version (server) {} else {
 enum highlight_yellow = tuple(255, 255, 165);
 enum pale_indigo = tuple(162, 165, 198);
 enum magenta = tuple(255, 0, 255);
+enum error_red = tuple(255, 128, 128);
 
 enum medium_shadow_width  = 101,
      medium_shadow_height = 140;
@@ -132,22 +139,22 @@ final class Card
             texture.texture.setColorMod(pale_indigo[]);
         }
         else if (highlight == Highlight.HAS_FOCUS_INVALID_CHOICE) {
-            texture.texture.setColorMod(255, 128, 128);
+            texture.texture.setColorMod(error_red[]);
         }
         renderer.renderCopyTR(texture, position.x, position.y, width, height);
         texture.texture.setColorMod(255, 255, 255);
 
         if (highlight == Highlight.HAS_FOCUS || highlight == Highlight.HAS_FOCUS_INVALID_CHOICE) {
-            drawBorder(renderer, width, height, position, highlight_yellow[]);
+            drawBorder(renderer, width, height, 8, position, highlight_yellow[]);
         }
         else if (highlight == Highlight.HAS_FOCUS_MOUSE_MOVED) {
-            drawBorder(renderer, width, height, position, pale_indigo[]);
+            drawBorder(renderer, width, height, 8, position, pale_indigo[]);
         }
         else if (highlight == Highlight.PLACE) {
-            drawBorder(renderer, width, height, position, magenta[]);
+            drawBorder(renderer, width, height, 8, position, magenta[]);
         }
         else if (highlight == Highlight.SELECTED_HOVER) {
-            drawBorder(renderer, width, height, position, 0, 0, 0);
+            drawBorder(renderer, width, height, 8, position, 0, 0, 0);
         }
     }
 

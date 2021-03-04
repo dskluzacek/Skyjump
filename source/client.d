@@ -7,22 +7,20 @@
 module client;
 @safe:
 
-import std.stdio;
-import std.algorithm;
+import std.stdio : writeln, File;
+import std.algorithm : each, filter, count;
 import std.string : strip, toStringz;
 import std.exception : enforce;
-import std.array;
-import std.typecons;
-import std.functional;
+import std.range.primitives;
+import std.typecons : Tuple, tuple, Nullable, nullable, Flag, Yes, No;
 import std.datetime : Clock;
 import std.socket;
-import std.conv;
+import std.conv : to;
 import std.container : DList;
 import core.time;
 import core.thread;
 import core.memory;
 
-import bindbc.sdl.mixer;
 import sdl2.sdl,
        sdl2.window,
        sdl2.renderer,
@@ -48,7 +46,7 @@ import textfield;
 import theme;
 
 enum window_title = "Skyjump";
-enum version_str  = "v0.0.4";
+enum version_str  = "v0.0.5-debug";
 
 enum ushort port_number = 7684;
 enum connect_failed_str = "Failed to connect to server.";
@@ -77,8 +75,8 @@ version (Android) {
 
     enum cancel_button_dims = Rectangle(1248, 175, 240, 80);
     enum connect_button_dims = Rectangle(800, 680, 320, 80);
-    enum felt_theme_btn_dims = Rectangle(1585, 985, 320, 80);
-    enum wood_theme_btn_dims = Rectangle(1330, 985, 240, 80);
+    enum felt_theme_btn_dims = Rectangle(1665, 985, 240, 80);
+    enum wood_theme_btn_dims = Rectangle(1410, 985, 240, 80);
 
     enum opp_grid_x = 88;
     enum opp_grid_y = 15;
@@ -99,8 +97,8 @@ else {
 
     enum cancel_button_dims = Rectangle(1248, 215, 120, 40);
     enum connect_button_dims = Rectangle(880, 620, 160, 40);
-    enum felt_theme_btn_dims = Rectangle(1745, 1025, 160, 40);
-    enum wood_theme_btn_dims = Rectangle(1615, 1025, 120, 40);
+    enum felt_theme_btn_dims = Rectangle(1785, 1025, 120, 40);
+    enum wood_theme_btn_dims = Rectangle(1655, 1025, 120, 40);
 
     enum opp_grid_x = 40;
     enum opp_grid_y = 40;
@@ -425,7 +423,7 @@ void load(ref Renderer renderer)
     gameBackground = Background(woodTexture);
 
     woodThemeButton = new Button(wood_theme_btn_dims, "Wood", uiFont, renderer);
-    greenFeltThemeButton = new Button(felt_theme_btn_dims, "Green felt", uiFont, renderer);
+    greenFeltThemeButton = new Button(felt_theme_btn_dims, "Green", uiFont, renderer);
 
     auto woodTheme = Theme(woodTexture, black, blue);
     activeTheme = woodTheme;
@@ -524,16 +522,17 @@ void loadCardsAndSounds(ref Renderer renderer, string assetPath)
 
     Card.setShadowTexture(sheet["shadow"]);
     Card.setStackShadowTexture(sheet["shadow2"]);
+    Button.setCornerTexture(sheet["corner"]);
 
     disconnectedIcon = sheet["network-x"];
     victoryIcon = sheet["star"];
 
-    // version (Windows) {
+    version (Windows) {
         enum soundExtension = ".wav";
-    // }
-    // else {
-    //     enum soundExtension = ".ogg";
-    // }
+    }
+    else {
+        enum soundExtension = ".ogg";
+    }
     dealSound = loadWAV(assetPath ~ "playcard" ~ soundExtension);
     flipSound = loadWAV(assetPath ~ "cardPlace3" ~ soundExtension);
     discardSound = loadWAV(assetPath ~ "cardShove1" ~ soundExtension);
@@ -620,7 +619,10 @@ void mainLoop(ref Window window,
     MonoTime currentTime;
     MonoTime lastTime = MonoTime.currTime();
 
-    () @trusted { GC.disable(); } ();
+    () @trusted { 
+        GC.collect();
+        GC.disable();
+    }();
 
     while (! quit)
     {
@@ -653,7 +655,7 @@ void mainLoop(ref Window window,
             }
         }
 
-        if ( moveAnim.process() )
+        if ( moveAnim.process() )  // true if moveAnim finished
         {
             static bool gcRun = true;
             static bool gcCollectNext;  // flag used to skip every other possible GC.collect()
@@ -680,24 +682,7 @@ void mainLoop(ref Window window,
                 gcRun = true;
             }
         }
-
-        if (lastTurnSoundTimerStart != MonoTime.init
-            && MonoTime.currTime() - lastTurnSoundTimerStart > sound_effect_delay)
-        {
-            lastTurnSound.play();
-            lastTurnSoundTimerStart = MonoTime.init;
-
-            if (yourTurnSoundTimerStart != MonoTime.init) {
-                yourTurnSoundTimerStart = MonoTime.currTime();
-            }
-        }
-
-        if (yourTurnSoundTimerStart != MonoTime.init
-            && MonoTime.currTime() - yourTurnSoundTimerStart > sound_effect_delay)
-        {
-            yourTurnSound.play();
-            yourTurnSoundTimerStart = MonoTime.init;
-        }
+        playSoundsOnTimers();
 
         render(window, renderer);
     }
@@ -741,7 +726,6 @@ void render(ref Window window, ref Renderer renderer)
     drawnCard.render(renderer, windowHasFocus);
 
     renderOppDrawnCard(renderer);
-
     moveAnim.render(renderer);
 
     if (currentMode == UIMode.DEALING) {
@@ -755,7 +739,28 @@ void renderOppDrawnCard(ref Renderer renderer)
 {
     if (opponentDrawnCard !is null)
     {
-        opponentDrawnCard.draw(renderer, opponentDrawnCardRect);
+        opponentDrawnCard.draw(renderer, opponentDrawnCardRect, Card.Highlight.OFF, Card.Shadow.ON);
+    }
+}
+
+void playSoundsOnTimers()
+{
+    if (lastTurnSoundTimerStart != MonoTime.init
+        && MonoTime.currTime() - lastTurnSoundTimerStart > sound_effect_delay)
+    {
+        lastTurnSound.play();
+        lastTurnSoundTimerStart = MonoTime.init;
+
+        if (yourTurnSoundTimerStart != MonoTime.init) {
+            yourTurnSoundTimerStart = MonoTime.currTime();
+        }
+    }
+
+    if (yourTurnSoundTimerStart != MonoTime.init
+        && MonoTime.currTime() - yourTurnSoundTimerStart > sound_effect_delay)
+    {
+        yourTurnSound.play();
+        yourTurnSoundTimerStart = MonoTime.init;
     }
 }
 
@@ -826,21 +831,21 @@ void connect()
     }
 }
 
+void resetConnection()
+{
+    connection.socket.close();
+    connection = null;
+
+    if (currentMode == UIMode.CONNECT) {
+        connectButton.enabled = true;
+    }
+    else {
+        enterConnectMode();
+    }
+}
+
 void pollServer()
 {
-    void resetConnection()
-    {
-        connection.socket.close();
-        connection = null;
-
-        if (currentMode == UIMode.CONNECT) {
-            connectButton.enabled = true;
-        }
-        else {
-            enterConnectMode();
-        }
-    }
-
     if (connection is null) {
         return;
     }
@@ -852,14 +857,13 @@ void pollServer()
         Nullable!ServerMessage message;
 
         try {
-            Socket.select(socketSet, null, null, dur!"usecs"(100));
+            Socket.select(socketSet, null, null, 100.usecs);
             message = connection.poll(socketSet);
 
             message.ifPresent!((message) {
                 if (currentMode == UIMode.CONNECT) {
                     leaveConnectMode();
                 }
-
                 bool stop = handleMessage(message);
 
                 if (stop) {
@@ -881,17 +885,26 @@ void pollServer()
     }
     else
     {
-        Socket.select(null, socketSet, null, dur!"usecs"(100));
-        connection.checkConnected(socketSet);
-
-        if (connection.isConnected)
-        {
-            connection.send(ClientMessageType.JOIN, localPlayer.getName);
-            return;
-        }
+        tryToJoin();
     }
     assert(connectAttemptTimerStart != MonoTime.init);
+    processConnectTimer();
+}
 
+void tryToJoin()
+{
+    Socket.select(null, socketSet, null, 100.usecs);
+    connection.checkConnected(socketSet);
+
+    if (connection.isConnected)
+    {
+        connection.send(ClientMessageType.JOIN, localPlayer.getName);
+        return;
+    }
+}
+
+void processConnectTimer()
+{
     if (connection !is null && ! connection.isDataReceived
         && MonoTime.currTime() - connectAttemptTimerStart > connect_timeout)
     {
@@ -942,7 +955,7 @@ void pollInputEvents(ref bool quit, ref KeyboardController controller, ref Rende
                 if (e.key.keysym.scancode == SDL_SCANCODE_V && getModState() & KMOD_CTRL)
                 {
                     SDLClipboardText text = SDLClipboardText.getClipboardText();
-                    
+
                     if (text.hasText) {
                         textWidget.front.paste(text.get, renderer);
                     }
@@ -966,16 +979,14 @@ void pollInputEvents(ref bool quit, ref KeyboardController controller, ref Rende
             }
             else
             {
-                version (Android) { }
-                else {
+                version (Android) {} else {
                     controller.handleEvent(e.key); 
                 }
             }
         }
         else if (e.type == SDL_MOUSEMOTION)
         {
-            version (Android) { }
-            else {
+            version (Android) {} else {
                 lastMousePosition.x = e.motion.x;
                 lastMousePosition.y = e.motion.y;
             }

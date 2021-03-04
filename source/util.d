@@ -159,19 +159,46 @@ bool isNotNull(T)(auto ref T t) if (isInstanceOf!(Nullable, T))
     return toDelegate(t);
 }
 
+final class IOException : Exception
+{
+    this(string message, string file = __FILE__, size_t line = __LINE__) pure nothrow
+    {
+        super(message, file, line);
+    }
+}
+
 version (server) {} else:
 
 void drawBorder(ref Renderer renderer,
                 int width,
                 int height,
+                int borderWidth,
                 Point position,
                 ubyte r, ubyte g, ubyte b) @safe @nogc nothrow
 {
     renderer.setDrawColor(r, g, b);
-    renderer.fillRectangle(Rectangle(position.x-8, position.y-8, 8, height+16));
-    renderer.fillRectangle(Rectangle(position.x-8, position.y-8, width+16, 8));
-    renderer.fillRectangle(Rectangle(position.x + width, position.y-8, 8, height+16));
-    renderer.fillRectangle(Rectangle(position.x-8, position.y + height, width+16, 8));
+    renderer.fillRectangle(Rectangle(position.x - borderWidth, position.y - borderWidth,
+                                     borderWidth, height + borderWidth*2));
+    renderer.fillRectangle(Rectangle(position.x - borderWidth, position.y - borderWidth,
+                                     width + borderWidth*2, borderWidth));
+    renderer.fillRectangle(Rectangle(position.x + width, position.y - borderWidth,
+                                     borderWidth, height + borderWidth*2));
+    renderer.fillRectangle(Rectangle(position.x - borderWidth, position.y + height,
+                                     width + borderWidth*2, borderWidth));
+}
+
+void drawBorder(T)(ref Renderer renderer,
+                   int width,
+                   int height,
+                   int borderWidth,
+                   Point position,
+                   T color) @safe @nogc nothrow
+{
+    pragma(inline, true);
+    drawBorder(renderer, width, height, borderWidth, position, cast(ubyte) color[0],
+                                                               cast(ubyte) color[1],
+                                                               cast(ubyte) color[2]);
+
 }
 
 interface Clickable

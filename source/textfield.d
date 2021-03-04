@@ -1,3 +1,9 @@
+/*
+ * textfield.d
+ * 
+ * Copyright (c) 2021 David P Skluzacek
+ */
+
 module textfield;
 @safe:
 
@@ -8,7 +14,7 @@ import std.algorithm : min, filter, map;
 import std.array : array;
 import std.string : fromStringz;
 import std.utf : toUTFz, codeLength;
-import std.typecons : tuple;
+import std.typecons : Tuple, tuple;
 import std.math : abs;
 import std.exception : enforce;
 
@@ -23,6 +29,12 @@ enum light_gray = tuple(192, 192, 192);
 
 version (Android) {
     enum y_position_receiving_input = 30;
+    enum border_width = 4;
+    enum caret_width = 6;
+}
+else {
+    enum border_width = 2;
+    enum caret_width = 3;
 }
 
 interface TextComponent
@@ -160,20 +172,18 @@ final class TextField : TextComponent, Focusable, Clickable
         if (! isVisible) {
             return;
         }
-
         renderer.setDrawColor(255, 255, 255);
         renderer.fillRectangle(box);
 
-        if (_receivingInput) {
-            renderer.setDrawColor(highlight_yellow[]);
-        }
-        else {
-            renderer.setDrawColor(light_gray[]);
-        }
-        auto textPos = Point(box.x + padding, box.y + padding);
+        auto borderColor = light_gray;
 
-        renderer.drawRectangle(box);
-        renderer.drawRectangle(Rectangle(box.x + 1, box.y + 1, box.w - 2, box.h - 2));
+        if (_receivingInput) {
+            borderColor = highlight_yellow;
+        }
+        renderer.drawBorder(box.w - border_width*2, box.h - border_width*2, border_width,
+                            Point(box.x + border_width, box.y + border_width), borderColor);
+
+        auto textPos = Point(box.x + padding, box.y + padding);
 
         if (! renderedText.isNull) {
             renderer.renderCopy(renderedText, textPos.x, textPos.y);
@@ -187,7 +197,7 @@ final class TextField : TextComponent, Focusable, Clickable
                 TTF_SizeUTF8(font, text[0 .. cursorPosition].toUTFz!(char*), &width, &fontHeight);
             }
             renderer.setDrawColor(0, 0, 0);
-            renderer.fillRectangle(Rectangle(textPos.x + width - 1, textPos.y, 3, fontHeight));
+            renderer.fillRectangle(Rectangle(textPos.x + width - caret_width/3, textPos.y, caret_width, fontHeight));
         }
     }
 
