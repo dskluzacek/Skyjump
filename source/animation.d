@@ -1,3 +1,9 @@
+/*
+ * animation.d
+ * 
+ * Copyright (c) 2021 David P Skluzacek
+ */
+
 module animation;
 @safe:
 
@@ -9,7 +15,7 @@ import sdl2.renderer;
 import sdl2.mixer;
 
 import card;
-import util : lerp, offset;
+import util : lerp, offset, distance;
 import playergrid : AbstractClientGrid, card_large_height, card_large_width;
 
 alias StartTimeType = MonoTime;
@@ -33,7 +39,7 @@ struct MoveAnimation
         }
     }
 
-    this(Card card, Rectangle start, Rectangle end, Duration duration) nothrow
+    this(Card card, Rectangle start, Rectangle end, Duration duration) nothrow @nogc
     {
         this.card = card;
         this.start = start;
@@ -44,6 +50,30 @@ struct MoveAnimation
         startTime = MonoTime.currTime();
     }
 
+    this(Card card, Rectangle start, Rectangle end, float speed) nothrow @nogc
+    {
+        auto dur = speedToDuration(speed, start, end);
+        this(card, start, end, dur);
+    }
+
+    this(Card card, Rectangle start, Rectangle end, float speed, Duration minDuration) nothrow @nogc
+    {
+        auto dur = speedToDuration(speed, start, end);
+
+        if (minDuration > dur) {
+            dur = minDuration;
+        }
+        this(card, start, end, dur);
+    }
+
+    private static pure Duration speedToDuration(float speed, Rectangle start, Rectangle end) nothrow @nogc
+    {
+        Point startCenter = Point(start.x + start.w / 2, start.y + start.h / 2);
+        Point endCenter = Point(end.x + end.w / 2, end.y + end.h / 2);
+        
+        return (cast(long) (distance(startCenter, endCenter) / speed)).msecs;
+    }
+    
     bool process()
     {
         if (card is null) {
@@ -133,53 +163,68 @@ struct MoveAnimation
 
 final class DealAnimation
 {
+    enum number_of_cards = 12;
+    
     private
     {
-        MoveAnimation animation;
+        MoveAnimation[] animations;
         AbstractClientGrid[] grids;
         Sound sound;
-        int gridIndex = 0;
         int cardCount = 1;
     }
 
-    this(Point start, AbstractClientGrid[] grids, Duration timePerCard, Card card, Sound sound)
+    this(Point start, AbstractClientGrid[] grids, Duration timePerCard, Card card, Sound sound)  
     {
-        animation = MoveAnimation(card,
-                                  Rectangle(start.x, start.y , card_large_width, card_large_height),
-                                  grids[0].getCardDestination(),
-                                  timePerCard);
         this.grids = grids;
         this.sound = sound;
+        this.animations = new MoveAnimation[grids.length];
+
+        foreach (i; 0 .. grids.length)
+        {
+            animations[i] = MoveAnimation(card,
+                                Rectangle(start.x, start.y, card_large_width, card_large_height),
+                                grids[i].getCardDestination(),
+                                timePerCard);
+        }
     }
 
     bool process()
     {
-        if (cardCount >= 13) {
+        if (cardCount > number_of_cards) {
             return true;
         }
+        bool result;
 
-        if ( animation.process() )
+        foreach (ref anim; animations)
+        {
+            result = anim.process();
+        }
+
+        if (result)
         {
             sound.play();
-            grids[gridIndex].add(new Card(CardRank.UNKNOWN));
-            ++gridIndex;
-
-            if (gridIndex >= grids.length)
+            
+            foreach (grid; grids)
             {
-                ++cardCount;
-
-                if (cardCount >= 13) {
-                    return true;
-                }
-                gridIndex = 0;
+                // use seperate card objects so gui code can use their identity
+                grid.add(new Card(CardRank.UNKNOWN));
             }
-            animation.end = grids[gridIndex].getCardDestination();
-            animation.startTime = MonoTime.currTime();
-            animation.onFinishedCalled = false;
+            ++cardCount;
 
-            version (Android) {
-                animation.prevX = -1;
-                animation.prevY = -1;
+            if (cardCount > number_of_cards) {
+                return true;
+            }
+
+            foreach (i, ref anim; animations)
+            {
+                anim.end = grids[i].getCardDestination();
+                anim.startTime = MonoTime.currTime();
+                anim.onFinishedCalled = false;
+
+                version (Android) {
+                    anim.prevX = -1;
+                    anim.prevY = -1;
+                }
             }
         }
 
@@ -188,6 +233,9 @@ final class DealAnimation
 
     void render(ref Renderer renderer)
     {
-        animation.render(renderer);
+        foreach (ref anim; animations)
+        {
+            anim.render(renderer);
+        }
     }
 }

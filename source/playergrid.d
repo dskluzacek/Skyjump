@@ -43,6 +43,8 @@ class PlayerGrid
 
     final bool add(Card c) pure nothrow @nogc
     {
+        assert(c !is null);
+        
         foreach (row; 0 .. 3)
         {
             foreach (col; 0 .. 4)

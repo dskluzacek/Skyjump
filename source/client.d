@@ -122,8 +122,10 @@ enum connect_timeout = 12.seconds;
 
 enum sound_effect_delay =   1.seconds;
 enum long_anim_duration = 750.msecs;
-enum anim_duration      = 285.msecs;
+enum medium_anim_duration = 450.msecs;
+enum short_anim_duration      = 285.msecs;
 enum dragged_anim_speed = 0.728f;   // pixels per ms
+enum fast_anim_speed = 1.456f;   // pixels per ms
 
 private
 {
@@ -174,12 +176,18 @@ private
     MonoTime yourTurnSoundTimerStart;
     MonoTime lastTurnSoundTimerStart;
     MonoTime connectAttemptTimerStart;
+    version (Android) {
+        ContextButton pasteButton;
+        MonoTime fingerDownTimerStart;
+        TextComponent fingerDownWidget;
+        Point lastMousePosition;
+        Point currentMousePosition;
+    }
     TextComponent[] textComponents;
     TextField nameTextField;
     TextField serverTextField;
     Focusable focusedItem;
     FocusType itemFocusType = FocusType.NONE;
-    Point lastMousePosition;
     UIMode currentMode = UIMode.CONNECT;
     LocalPlayer localPlayer;
     PlayerLabel localPlayerLabel;
@@ -432,8 +440,8 @@ void load(ref Renderer renderer)
     woodThemeButton.onClick = () @safe { setTheme(woodTheme, renderer); };
 
     greenFeltThemeButton.enabled = true;
-    greenFeltThemeButton.onClick = asDelegate(() @safe
-      { setTheme(Theme(greenFeltTexture, white, cyan), renderer); });
+    greenFeltThemeButton.onClick = delegate() @safe
+      { setTheme(Theme(greenFeltTexture, white, cyan), renderer); };
 
     themeLabel = new Label("Theme: ", mediumFont);
     themeLabel.setPosition(wood_theme_btn_dims.x, wood_theme_btn_dims.y + wood_theme_btn_dims.h / 2,
@@ -495,6 +503,8 @@ void loadConnectUI(ref Renderer renderer)
     version (Android) {
         addTextFieldObservers(nameFieldLabel, nameTextField, name_field_dims, serverTextField, serverFieldLabel);
         addTextFieldObservers(serverFieldLabel, serverTextField, server_field_dims, nameTextField, nameFieldLabel);
+    
+        pasteButton = new ContextButton("Paste", cancel_button_dims.h * 3/2, uiFont, renderer);
     }
 }
 
@@ -518,7 +528,7 @@ void loadCardsAndSounds(ref Renderer renderer, string assetPath)
     Card.setTexture(CardRank.TEN, sheet["10"]);
     Card.setTexture(CardRank.ELEVEN, sheet["11"]);
     Card.setTexture(CardRank.TWELVE, sheet["12"]);
-    Card.setTexture(CardRank.UNKNOWN, sheet["back-grad"]);
+    Card.setTexture(CardRank.UNKNOWN, sheet["back"]);
 
     Card.setShadowTexture(sheet["shadow"]);
     Card.setStackShadowTexture(sheet["shadow2"]);
@@ -605,6 +615,7 @@ void enterMainLoop(ref Window window,
     addClickable(drawnCard);
     addClickable(nameTextField);
     addClickable(serverTextField);
+    version (Android) { addClickable(pasteButton); }
 
     // SDL_Log( ("gl swap interval= " ~ SDL_GL_GetSwapInterval().to!string).toStringz );
 
@@ -731,6 +742,8 @@ void render(ref Window window, ref Renderer renderer)
     if (currentMode == UIMode.DEALING) {
         dealAnim.render(renderer);
     }
+    
+    version (Android) { pasteButton.draw(renderer); }
 
     renderer.present();
 }
@@ -986,30 +999,65 @@ void pollInputEvents(ref bool quit, ref KeyboardController controller, ref Rende
         }
         else if (e.type == SDL_MOUSEMOTION)
         {
-            version (Android) {} else {
-                lastMousePosition.x = e.motion.x;
-                lastMousePosition.y = e.motion.y;
+            version (Android) {
+                currentMousePosition.x = e.button.x;
+                currentMousePosition.y = e.button.y;
             }
 
             focusMouseMoved();
             notifyObservers!"mouseMotion"(e.motion);
         }
-        else if (e.type == SDL_MOUSEBUTTONDOWN && e.button.button == SDL_BUTTON_LEFT)
+        else if (e.type == SDL_MOUSEBUTTONDOWN)
         {
             version (Android) {
-                lastMousePosition.x = e.motion.x;
-                lastMousePosition.y = e.motion.y;
+                fingerDownTimerStart = MonoTime.currTime();
+                lastMousePosition.x = e.button.x;
+                lastMousePosition.y = e.button.y;
+                currentMousePosition = lastMousePosition;
+
+                if ( pasteButton.acceptsClick(Point(e.button.x, e.button.y)) )
+                {
+                    pasteButton.mouseButtonDown( Point(e.button.x, e.button.y) );
+                    continue;
+                }
             }
-            
-            if (moveAnim.isFinished) {
+ 
+            if (moveAnim.isFinished && e.button.button == SDL_BUTTON_LEFT) {
                 notifyObservers!"mouseDown"(e.button);
             }
         }
-        else if (e.type == SDL_MOUSEBUTTONUP && e.button.button == SDL_BUTTON_LEFT)
+        else if (e.type == SDL_MOUSEBUTTONUP )
         {
-            if (moveAnim.isFinished) {
+            version (Android) { fingerDownTimerStart = MonoTime.init; }
+
+            if (moveAnim.isFinished && e.button.button == SDL_BUTTON_LEFT) {
                 notifyObservers!"mouseUp"(e.button);
             }
+        }
+    }
+
+    version (Android) {
+        checkForLongPress(textWidget, renderer);
+    }
+}
+
+void checkForLongPress(T)(T textWidgetRange, ref Renderer renderer)
+{
+    if (! textWidgetRange.empty && fingerDownTimerStart != MonoTime.init
+        && MonoTime.currTime() - fingerDownTimerStart > 800.msecs)
+    {
+        auto widget = textWidgetRange.front;
+        
+        if (distance(lastMousePosition, currentMousePosition) <= 100)
+        {
+            fingerDownTimerStart = MonoTime.init;
+            
+            pasteButton.onClick = {
+                SDLClipboardText text = SDLClipboardText.getClipboardText();
+                if (text.hasText) { widget.paste(text.get, renderer); }
+                pasteButton.onClick = {};
+            };
+            pasteButton.show(currentMousePosition);
         }
     }
 }
@@ -1204,17 +1252,17 @@ bool handleMessage(ServerMessage message)
         });
         break;
     case ServerMessageType.YOUR_TURN:
-        pendingActions.insertBack( asDelegate({
+        pendingActions.insertBack( delegate() {
             model.setPlayerCurrentTurn(localPlayerNumber);
             beginOurTurn();
-        }) );
+        });
         break;
     case ServerMessageType.RESUME_DRAW:
-        pendingActions.insertBack( asDelegate({
+        pendingActions.insertBack( delegate() {
             enforce!ProtocolException(drawnCard.drawnCard !is null);
             enterDrawnCardActionMode();
             yourTurnSoundTimerStart = MonoTime.currTime();
-        }) );
+        });
         break;
     case ServerMessageType.CHOOSE_FLIP:
         beginFlipChoices();
@@ -1394,7 +1442,7 @@ void beginDealing(int dealer)
     }
     while (num != first);
 
-    dealAnim = new DealAnimation(draw_pile_position, clientGrids, anim_duration,
+    dealAnim = new DealAnimation(draw_pile_position, clientGrids, short_anim_duration,
                                  unknown_card, dealSound);
 }
 
@@ -1530,18 +1578,21 @@ void discardSwap(int playerNumber, int row, int col, CardRank cardTaken, CardRan
     Player player = model.getPlayer(playerNumber.to!ubyte);
     const cardRect = (cast(AbstractClientGrid) player.getGrid).getCardDestination(row, col);
     Rectangle originRect;
-    Duration animDuration;
+    Duration minDuration;
+    float animSpeed;
 
     if ( discardPile.isDropped() ) {
         originRect = discard_pile_rect.offset( discardPile.positionAdjustment()[] );
-        animDuration = (cast(long) (distance(originRect, cardRect) / dragged_anim_speed)).msecs;
+        animSpeed = dragged_anim_speed;
+        minDuration = 0.seconds;
     }
     else {
         originRect = discard_pile_rect;
-        animDuration = long_anim_duration;
+        animSpeed = fast_anim_speed;
+        minDuration = medium_anim_duration;
     }
 
-    moveAnim = MoveAnimation(popped.get, originRect, cardRect, animDuration);
+    moveAnim = MoveAnimation(popped.get, originRect, cardRect, animSpeed, minDuration);
     moveAnim.onFinished = {
         discardPile.reset();  // reset drag-and-drop state
         dealSound.play();
@@ -1558,7 +1609,7 @@ void discardSwap(int playerNumber, int row, int col, CardRank cardTaken, CardRan
             c.revealed = true;
         }
 
-        moveAnim = MoveAnimation(c, cardRect, discard_pile_rect, long_anim_duration);
+        moveAnim = MoveAnimation(c, cardRect, discard_pile_rect, fast_anim_speed, medium_anim_duration);
         moveAnim.onFinished = {
             discardSound.play();
             model.pushToDiscard(c);
@@ -1578,18 +1629,18 @@ void enterDrawnCardActionMode()
     drawnCard.dragEnabled = true;
     drawnCard.setTargets([cast(DragAndDropTarget) localPlayer.getGrid, discardPile]);
 
-    auto placeHandler = asDelegate((int r, int c) {
+    auto placeHandler = delegate(int r, int c) {
         enterNoActionMode();
         connection.send(ClientMessageType.PLACE, r, c);
-    });
+    };
     localPlayer.getGrid.onClick = placeHandler;
     localPlayer.getGrid.onDrop = placeHandler;
 
-    auto discardHandler = asDelegate({
+    auto discardHandler = delegate() {
         enterNoActionMode();
         connection.send(ClientMessageType.REJECT);
         discardDrawnCard();
-    });
+    };
     discardPile.onClick = discardHandler;
     discardPile.onDrop = discardHandler;
 }
@@ -1601,7 +1652,7 @@ void showDrawnCard(CardRank rank)
     Card c = new Card(rank);
     c.revealed = true;
 
-    moveAnim = MoveAnimation(c, draw_pile_rect, drawn_card_rect, anim_duration);
+    moveAnim = MoveAnimation(c, draw_pile_rect, drawn_card_rect, short_anim_duration);
     moveAnim.onFinished = {
         drawnCard.drawnCard = c;
         enterDrawnCardActionMode();
@@ -1626,7 +1677,8 @@ void placeDrawnCard(T)(T player, int row, int col, CardRank takenRank, CardRank 
     const cardRect = (cast(AbstractClientGrid) player.getGrid).getCardDestination(row, col);
     Card taken;
     Rectangle originRect;
-    Duration animDuration;
+    Duration minDuration;
+    float animSpeed;
 
     static if (is(T == LocalPlayer)) {
         assignTaken(drawnCard.drawnCard, taken);
@@ -1634,20 +1686,22 @@ void placeDrawnCard(T)(T player, int row, int col, CardRank takenRank, CardRank 
 
         if ( drawnCard.isDropped() ) {
             originRect = drawn_card_rect.offset( drawnCard.positionAdjustment()[] );
-            animDuration = (cast(long) (distance(originRect, cardRect) / dragged_anim_speed)).msecs;
+            animSpeed = dragged_anim_speed;
+            minDuration = 0.seconds;
         }
         else {
             originRect = drawn_card_rect;
-            animDuration = long_anim_duration;
+            animSpeed = fast_anim_speed;
+            minDuration = medium_anim_duration;
         }
+        moveAnim = MoveAnimation(taken, originRect, cardRect, animSpeed, minDuration);
     }
     else {
         assignTaken(opponentDrawnCard, taken);
         originRect = opponentDrawnCardRect;
-        animDuration = long_anim_duration;
+        moveAnim = MoveAnimation(taken, originRect, cardRect, long_anim_duration);
     }
-
-    moveAnim = MoveAnimation(taken, originRect, cardRect, animDuration);
+    
     moveAnim.onFinished = {
         drawnCard.reset();
         dealSound.play();
@@ -1664,7 +1718,7 @@ void placeDrawnCard(T)(T player, int row, int col, CardRank takenRank, CardRank 
             c.revealed = true;
         }
 
-        moveAnim = MoveAnimation(c, cardRect, discard_pile_rect, long_anim_duration);
+        moveAnim = MoveAnimation(c, cardRect, discard_pile_rect, fast_anim_speed, medium_anim_duration);
         moveAnim.onFinished = {
             discardSound.play();
             model.pushToDiscard(c);
@@ -1684,18 +1738,18 @@ void discardDrawnCard()
     drawnCard.drawnCard = null;
 
     Rectangle originRect;
-    Duration animDuration;
+    float animSpeed;
 
     if ( drawnCard.isDropped() ) {
         originRect = drawn_card_rect.offset( drawnCard.positionAdjustment()[] );
-        animDuration = (cast(long) (distance(originRect, discard_pile_rect) / dragged_anim_speed)).msecs;
+        animSpeed = dragged_anim_speed;
     }
     else {
         originRect = drawn_card_rect;
-        animDuration = long_anim_duration;
+        animSpeed = fast_anim_speed;
     }
 
-    moveAnim = MoveAnimation(c, originRect, discard_pile_rect, animDuration);
+    moveAnim = MoveAnimation(c, originRect, discard_pile_rect, animSpeed);
     moveAnim.onFinished = {
         drawnCard.reset();
         discardSound.play();
@@ -1711,7 +1765,7 @@ void opponentDiscardsDrawnCard(ubyte playerNumber, CardRank rank)
 
     const start = (cast(ClientPlayer) model.getPlayer(playerNumber)).getGrid.getDrawnCardDestination();
 
-    moveAnim = MoveAnimation(c, start, discard_pile_rect, long_anim_duration);
+    moveAnim = MoveAnimation(c, start, discard_pile_rect, fast_anim_speed);
     moveAnim.onFinished = {
         discardSound.play();
         c.revealed = true;
@@ -1727,7 +1781,7 @@ void opponentDrawsCard(ubyte playerNumber)
 
     const dest = (cast(ClientPlayer) model.getPlayer(playerNumber)).getGrid.getDrawnCardDestination();
 
-    moveAnim = MoveAnimation(unknown_card, draw_pile_rect, dest, long_anim_duration);
+    moveAnim = MoveAnimation(unknown_card, draw_pile_rect, dest, fast_anim_speed);
     moveAnim.onFinished = {
         opponentDrawnCard = unknown_card;
         opponentDrawnCardRect = dest;

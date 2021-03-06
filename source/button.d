@@ -25,11 +25,12 @@ enum hovered_color = tuple(cast(ubyte) round(button_blue[0] * pale_indigo[0] / 2
                            cast(ubyte) round(button_blue[2] * pale_indigo[2] / 255.0f));
 
 enum x2_sized_ui_button_ht = 80;
+enum label_pixel_adjustment = 1;
 
 final class Button : Clickable, Focusable
 {
     version (Android) {
-        mixin MouseDownActivation;    
+        mixin MouseDownActivation;
     }
     else {
         mixin MouseUpActivation;
@@ -51,7 +52,7 @@ final class Button : Clickable, Focusable
 
         label = new Label(text, font, SDL_Color(255, 255, 255, 255));
         () @trusted { label.setRenderer(&renderer); } ();
-        label.enableAutoPosition(x + width / 2, y + 1 + height / 2,
+        label.enableAutoPosition(x + width / 2, y + label_pixel_adjustment + height / 2,
                                  HorizontalPositionMode.CENTER, VerticalPositionMode.CENTER);
         label.autoReRender = true;
     }
@@ -135,5 +136,73 @@ final class Button : Clickable, Focusable
         else {
             return nativeSize;
         }
+    }
+}
+
+abstract class MouseDownButton : Clickable
+{
+    mixin MouseDownActivation;
+}
+
+final class ContextButton : MouseDownButton
+{
+    private
+    {
+        Label label;
+        bool isVisible = false;
+    }
+
+    this(string text, int height, Font font, ref Renderer renderer)
+    {
+        label = new Label(text, font, SDL_Color(255, 255, 255, 255));
+        label.renderText(renderer);
+        
+        box.w = label.getWidth() + height;
+        box.h = height;
+    }
+
+    void show(Point triggerPoint) nothrow 
+    {   
+        box.x = (triggerPoint.x >= 960 ? triggerPoint.x - box.w - 125 : triggerPoint.x + 125);
+        box.y = triggerPoint.y;
+
+        label.setPosition(box.x + box.w / 2, box.y + label_pixel_adjustment + box.h / 2,
+                          HorizontalPositionMode.CENTER, VerticalPositionMode.CENTER);
+
+        this.enabled = true;
+        this.visible = true;
+    }
+
+    bool acceptsClick(Point p)
+    {
+        return this.enabled && box.containsPoint(p);
+    }
+
+    override void mouseButtonDown(Point position)
+    {
+        super.mouseButtonDown(position);
+        
+        if (isVisible) {
+            this.visible = false;
+        }
+    }
+
+    void visible(bool visible) @property pure nothrow @nogc
+    {
+        this.isVisible = visible;
+
+        if (! visible) {
+            this.enabled = false;
+        }
+    }
+
+    void draw(ref Renderer renderer)
+    {  
+        if (! isVisible) {
+            return;
+        }
+        renderer.setDrawColor(button_blue[]);
+        renderer.fillRectangle(box);
+        label.draw(renderer);
     }
 }
