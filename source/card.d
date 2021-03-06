@@ -9,6 +9,7 @@ module card;
 
 import std.random : uniform;
 import std.algorithm : remove;
+import std.array : array;
 import std.range.primitives;
 import std.typecons : tuple, Nullable, nullable;
 import std.exception : enforce;

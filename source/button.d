@@ -146,6 +146,8 @@ abstract class MouseDownButton : Clickable
 
 final class ContextButton : MouseDownButton
 {
+    enum x_offset = 125;
+    
     private
     {
         Label label;
@@ -163,7 +165,7 @@ final class ContextButton : MouseDownButton
 
     void show(Point triggerPoint) nothrow 
     {   
-        box.x = (triggerPoint.x >= 960 ? triggerPoint.x - box.w - 125 : triggerPoint.x + 125);
+        box.x = (triggerPoint.x >= 960 ? triggerPoint.x - box.w - x_offset : triggerPoint.x + x_offset);
         box.y = triggerPoint.y;
 
         label.setPosition(box.x + box.w / 2, box.y + label_pixel_adjustment + box.h / 2,

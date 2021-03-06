@@ -14,7 +14,7 @@ configuration "SkyjumpServer" {
     targetType "executable"
     mainSourceFile "source/server.d"
     excludedSourceFiles "source/client.d" "source/label.d" "source/keyboard.d" "source/animation.d" "source/background.d" \
-        "source/button.d" "source/textfield.d" "source/theme.d" "source/draganddrop.d" "source/sdl2/*.d"
+        "source/button.d" "source/textfield.d" "source/texturesheet.d" "source/theme.d" "source/draganddrop.d" "source/sdl2/*.d"
     versions "server"
     buildRequirements "requireContracts" "requireBoundsCheck"
     targetName "skyjump-server"

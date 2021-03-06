@@ -23,7 +23,20 @@ import net;
 enum ushort PORT = 7684;
 enum BACKLOG = 5;
 
-enum VERSION_STR = "0.0.5-debug";
+enum HELP_TEXT = `Commands:
+  list                           Show a list of players
+  start                          Start the game
+  next                           Proceed to next hand (at end of hand)
+  kick <player number>           Kick a player
+  drop <player number>           Force a player's connection to close
+  setname <player num> <name>    Change a player's name
+  help                           Show this help information
+  exit                           Stop the server
+`;
+
+enum VERSION_STR = "0.0.5";
+
+extern (C) void exit(int status);
 
 private
 {
@@ -47,7 +60,8 @@ void main() @system
     listenerSocket.bind(new InternetAddress(PORT));
     listenerSocket.listen(BACKLOG);
 
-    write("Skyjump server version ", VERSION_STR, "\n$ ");
+    writeln("Skyjump server version ", VERSION_STR);
+    write("Type 'help' for a list of commands\n$ ");
     consoleThread = spawn(&consoleReader, thisTid);
     bool quit;
 
@@ -118,6 +132,14 @@ void main() @system
                 } else {
                     writeMsg("Wrong number of arguments");
                 }
+                break;
+            case "help":
+                writeMsg(HELP_TEXT);
+                break;
+            case "exit":
+                writeln("Bye");
+                quit = true;
+                exit(0);
                 break;
             default:
                 writeMsg("Command not recognized");

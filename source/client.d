@@ -46,7 +46,7 @@ import textfield;
 import theme;
 
 enum window_title = "Skyjump";
-enum version_str  = "v0.0.5-debug";
+enum version_str  = "v0.0.5";
 
 enum ushort port_number = 7684;
 enum connect_failed_str = "Failed to connect to server.";
@@ -641,6 +641,8 @@ void mainLoop(ref Window window,
         }
         else
         {
+            static bool firstFrame = true;
+            
             currentTime = MonoTime.currTime();
             auto elapsed = currentTime - lastTime;
 
@@ -655,14 +657,25 @@ void mainLoop(ref Window window,
             lastTime = currentTime;
         }
 
-        pollServer();
-        pollInputEvents(quit, controller, renderer);
+        bool somethingChanged = pollServer();
+        somethingChanged = pollInputEvents(quit, controller, renderer) || somethingChanged;
+
+        playSoundsOnTimers();
 
         if (currentMode == UIMode.DEALING)
         {
             if ( dealAnim.process() ) {
                 connection.send(ClientMessageType.READY);  // let the server know animation finished
                 currentMode = UIMode.NO_ACTION;
+            }
+        }
+        else
+        {
+            version (Android) {} else {
+                if (numberOfAnimations == 0 && !(somethingChanged || firstFrame)) {
+                    renderer.present();
+                    continue;
+                }
             }
         }
 
@@ -693,7 +706,7 @@ void mainLoop(ref Window window,
                 gcRun = true;
             }
         }
-        playSoundsOnTimers();
+        version (Android) {} else { firstFrame = false; }
 
         render(window, renderer);
     }
@@ -857,13 +870,18 @@ void resetConnection()
     }
 }
 
-void pollServer()
+/**
+ * Check for messages from the server. $(BR)
+ * Returns true if message recieved or connection state changed.
+ */
+bool pollServer()
 {
     if (connection is null) {
-        return;
+        return false;
     }
     socketSet.reset();
     socketSet.add(connection.socket);
+    bool result;
 
     if (connection.isConnected)
     {
@@ -874,6 +892,8 @@ void pollServer()
             message = connection.poll(socketSet);
 
             message.ifPresent!((message) {
+                result = true;
+
                 if (currentMode == UIMode.CONNECT) {
                     leaveConnectMode();
                 }
@@ -881,19 +901,18 @@ void pollServer()
 
                 if (stop) {
                     resetConnection();
-                    return;
                 }
             });
         }
         catch (JoinException e) {
             feedbackLabel.setText(connect_failed_str);
             resetConnection();
-            return;
+            return true;
         }
         catch (SocketReadException e) {
             feedbackLabel.setText("The connection to the server was lost.");
             resetConnection();
-            return;
+            return true;
         }
     }
     else
@@ -901,7 +920,8 @@ void pollServer()
         tryToJoin();
     }
     assert(connectAttemptTimerStart != MonoTime.init);
-    processConnectTimer();
+
+    return processConnectTimer() || result;
 }
 
 void tryToJoin()
@@ -916,20 +936,23 @@ void tryToJoin()
     }
 }
 
-void processConnectTimer()
+bool processConnectTimer()
 {
     if (connection !is null && ! connection.isDataReceived
         && MonoTime.currTime() - connectAttemptTimerStart > connect_timeout)
     {
         feedbackLabel.setText(connect_failed_str);
         resetConnection();
+        return true;
     }
+    return false;
 }
 
 /**
- * Processes input events from the SDL event queue
+ * Processes input events from the SDL event queue. $(BR)
+ * Returns true if an event that we care about occured.
  */
-void pollInputEvents(ref bool quit, ref KeyboardController controller, ref Renderer renderer)
+bool pollInputEvents(ref bool quit, ref KeyboardController controller, ref Renderer renderer)
 {
     @trusted auto poll(ref SDL_Event ev)
     {
@@ -942,6 +965,7 @@ void pollInputEvents(ref bool quit, ref KeyboardController controller, ref Rende
     }
 
     SDL_Event e;
+    bool result = false;
     auto textWidget = textComponents.filter!(a => a.acceptingTextInput);
 
     while ( poll(e) )
@@ -950,13 +974,14 @@ void pollInputEvents(ref bool quit, ref KeyboardController controller, ref Rende
         if (e.type == SDL_QUIT)
         {
             quit = true;
-            break;
+            return true;
         }
         else if (e.type == SDL_TEXTINPUT)
         {
             if (! textWidget.empty)
             {
                 textWidget.front.inputEvent(e.text, renderer);
+                result = true;
             }
         }
         else if (e.type == SDL_KEYDOWN)
@@ -971,10 +996,12 @@ void pollInputEvents(ref bool quit, ref KeyboardController controller, ref Rende
 
                     if (text.hasText) {
                         textWidget.front.paste(text.get, renderer);
+                        result = true;
                     }
                 }
                 else if ( textWidget.front.keyboardEvent(e.key, renderer) )
                 {
+                    result = true;
                     continue;
                 }
             }
@@ -984,21 +1011,26 @@ void pollInputEvents(ref bool quit, ref KeyboardController controller, ref Rende
                 || e.key.keysym.sym == SDLK_TAB) && ! e.key.repeat)
             {
                 focusKeyPress(e.key.keysym.scancode);
+                result = true;
             }
             else if ((e.key.keysym.scancode == SDL_SCANCODE_SPACE || e.key.keysym.scancode == SDL_SCANCODE_RETURN
                      || e.key.keysym.scancode == SDL_SCANCODE_KP_ENTER) && ! e.key.repeat)
             {
                 focusActivate();
+                result = true;
             }
             else
             {
                 version (Android) {} else {
-                    controller.handleEvent(e.key); 
+                    controller.handleEvent(e.key);
+                    result = true;
                 }
             }
         }
         else if (e.type == SDL_MOUSEMOTION)
         {
+            result = true;
+            
             version (Android) {
                 currentMousePosition.x = e.button.x;
                 currentMousePosition.y = e.button.y;
@@ -1009,6 +1041,8 @@ void pollInputEvents(ref bool quit, ref KeyboardController controller, ref Rende
         }
         else if (e.type == SDL_MOUSEBUTTONDOWN)
         {
+            result = true;
+            
             version (Android) {
                 fingerDownTimerStart = MonoTime.currTime();
                 lastMousePosition.x = e.button.x;
@@ -1033,15 +1067,19 @@ void pollInputEvents(ref bool quit, ref KeyboardController controller, ref Rende
             if (moveAnim.isFinished && e.button.button == SDL_BUTTON_LEFT) {
                 notifyObservers!"mouseUp"(e.button);
             }
+            result = true;
         }
     }
 
     version (Android) {
-        checkForLongPress(textWidget, renderer);
+        return checkForLongPress(textWidget, renderer) || result;
+    }
+    else {
+        return result;
     }
 }
 
-void checkForLongPress(T)(T textWidgetRange, ref Renderer renderer)
+bool checkForLongPress(T)(T textWidgetRange, ref Renderer renderer)
 {
     if (! textWidgetRange.empty && fingerDownTimerStart != MonoTime.init
         && MonoTime.currTime() - fingerDownTimerStart > 800.msecs)
@@ -1058,8 +1096,10 @@ void checkForLongPress(T)(T textWidgetRange, ref Renderer renderer)
                 pasteButton.onClick = {};
             };
             pasteButton.show(currentMousePosition);
+            return true;
         }
     }
+    return false;
 }
 
 void focusKeyPress(SDL_Scancode code)
