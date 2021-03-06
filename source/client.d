@@ -671,7 +671,7 @@ void mainLoop(ref Window window,
         }
         else
         {
-            version (Android) {} else {
+            version (Android) {} else version (Windows) {} else {
                 if (numberOfAnimations == 0 && !(somethingChanged || firstFrame)) {
                     renderer.present();
                     continue;
